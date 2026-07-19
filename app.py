@@ -817,7 +817,7 @@ def update_dataset_goals(match_id: Tuple[str, str, str, str],
     except:
         return
 
-    if dataset.empty:
+    if dataset.empty or not all(col in dataset.columns for col in ["home_team", "away_team", "league_code", "kickoff_time"]):
         return
 
     match_condition = (
