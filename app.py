@@ -2025,25 +2025,42 @@ def render_pending():
     st.subheader("📋 Pending Manager (Input Skor)")
     db = DatabaseManager()
     pending_all = db.load_pending()
-    if pending_all.empty: st.info("Belum ada data Pending."); return
+    if pending_all.empty:
+        st.info("Belum ada data Pending."); return
 
-    col1, col2, col3 = st.columns(3)
-    with col1: status_filter = st.selectbox("Status", ["ALL"]+[s.value for s in MatchStatus])
-    with col2: league_filter = st.selectbox("League", ["ALL"]+sorted(pending_all['league_name'].dropna().unique().tolist()))
-    with col3: conf_filter = st.selectbox("Confidence", ["ALL",">70%",">80%",">90%"])
+    # --- Filter dalam bentuk tab horizontal ---
+    tab_status, tab_league, tab_conf = st.tabs(["Status", "League", "Confidence"])
+    with tab_status:
+        status_list = ["ALL"] + [s.value for s in MatchStatus]
+        status_filter = st.radio("Status", status_list, horizontal=True, key="status_filter")
+    with tab_league:
+        league_list = ["ALL"] + sorted(pending_all['league_name'].dropna().unique().tolist())
+        league_filter = st.selectbox("League", league_list, key="league_filter")
+    with tab_conf:
+        conf_filter = st.radio("Confidence", ["ALL", ">70%", ">80%", ">90%"],
+                               horizontal=True, key="conf_filter")
 
+    # --- Filter data sesuai pilihan ---
     df = pending_all.copy()
-    if status_filter!="ALL": df = df[df[PendingSchema.PREDICTION_STATUS]==status_filter]
-    if league_filter!="ALL": df = df[df['league_name']==league_filter]
-    if conf_filter==">70%": df = df[df['confidence_ou']>0.7]
-    elif conf_filter==">80%": df = df[df['confidence_ou']>0.8]
-    elif conf_filter==">90%": df = df[df['confidence_ou']>0.9]
-    if df.empty: st.info("Tidak ada data."); return
+    if status_filter != "ALL":
+        df = df[df[PendingSchema.PREDICTION_STATUS] == status_filter]
+    if league_filter != "ALL":
+        df = df[df['league_name'] == league_filter]
+    if conf_filter == ">70%":
+        df = df[df['confidence_ou'] > 0.7]
+    elif conf_filter == ">80%":
+        df = df[df['confidence_ou'] > 0.8]
+    elif conf_filter == ">90%":
+        df = df[df['confidence_ou'] > 0.9]
+
+    if df.empty:
+        st.info("Tidak ada data yang sesuai dengan filter.")
+        return
 
     for idx, row in df.iterrows():
         with st.expander(f"▶ {row['home_team']} vs {row['away_team']} ({row['prediction_status']})", expanded=False):
             render_pending_card(row, idx, pending_all, db)
-
+            
 def render_pending_card(row, idx, pending_all, db):
     st.caption(f"**{row['league_name']}** | Prediction: **{row['prediction']}** | Status: `{row['prediction_status']}`")
     col1, col2 = st.columns(2)
