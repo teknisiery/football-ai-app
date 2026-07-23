@@ -323,6 +323,7 @@ def compute_detailed_profits(history_df: pd.DataFrame):
     if 'settlement_time' in df.columns:
         df['settlement_time'] = pd.to_datetime(df['settlement_time'], errors='coerce')
         df['bulan'] = df['settlement_time'].dt.strftime('%Y-%m')
+        df['bulan'] = df['bulan'].fillna('Tanpa Tanggal')   # ← baris baru
         monthly_groups = df.groupby('bulan')
         monthly_data = {}
         for bulan, group in monthly_groups:
