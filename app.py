@@ -248,7 +248,7 @@ def calculate_profit(row: dict, stake: float = 100000.0) -> Tuple[float, str]:
     return total_profit, status
 
 # ============================================================
-# COMPUTE PROFITS UNTUK SIDEBAR (dengan filter NO BET)
+# COMPUTE PROFITS UNTUK SIDEBAR (Berbasis Kickoff Time Utama)
 # ============================================================
 @st.cache_data(ttl=300)
 def compute_detailed_profits(history_df: pd.DataFrame):
@@ -291,7 +291,7 @@ def compute_detailed_profits(history_df: pd.DataFrame):
         }
         profit_by_status = {}
 
-    # Tentukan kolom waktu utama: kickoff_time jika tersedia, jika tidak settlement_time
+    # Mengutamakan 'kickoff_time' daripada 'settlement_time'
     time_col = 'kickoff_time' if 'kickoff_time' in df.columns else 'settlement_time'
     if time_col in df.columns:
         df_bulan = bet_df.copy()
@@ -1391,14 +1391,18 @@ def main():
 
         st.metric("Total Profit (All Time)", f"Rp {total_profit:+,.0f}")
 
-        # Grafik cumulative profit all time dengan Plotly
-        if not profit_df.empty and 'settlement_time' in profit_df.columns:
-            profit_df_sorted = profit_df.sort_values('settlement_time')
+        # Grafik cumulative profit All Time berbasis KICKOFF TIME
+        time_col_main = 'kickoff_time' if 'kickoff_time' in profit_df.columns else 'settlement_time'
+        if not profit_df.empty and time_col_main in profit_df.columns:
+            profit_df_sorted = profit_df.dropna(subset=[time_col_main]).sort_values(time_col_main)
             profit_df_sorted['cumulative_profit'] = profit_df_sorted['profit'].cumsum()
-            profit_df_sorted = profit_df_sorted.dropna(subset=['settlement_time'])
             if not profit_df_sorted.empty:
-                fig = px.line(profit_df_sorted, x='settlement_time', y='cumulative_profit',
-                              labels={'settlement_time': 'Tanggal', 'cumulative_profit': 'Profit Kumulatif'})
+                fig = px.line(
+                    profit_df_sorted, 
+                    x=time_col_main, 
+                    y='cumulative_profit',
+                    labels={time_col_main: 'Kickoff', 'cumulative_profit': 'Profit Kumulatif'}
+                )
                 fig.update_layout(height=150, margin=dict(l=0, r=0, t=0, b=0))
                 fig.update_xaxes(tickformat='%d/%m')
                 st.plotly_chart(fig, use_container_width=True)
@@ -1422,13 +1426,13 @@ def main():
             for bulan in sorted(monthly_data.keys(), reverse=True):
                 data = monthly_data[bulan]
                 with st.expander(f"{bulan} - Rp {data['profit']:+,.0f}"):
-                    time_col = data.get('time_col', 'settlement_time')
+                    time_col = data.get('time_col', 'kickoff_time')
                     df_bulan = data['df'].sort_values(time_col)
                     df_bulan = df_bulan.dropna(subset=[time_col])
                     if not df_bulan.empty:
                         df_bulan['cumulative_profit'] = df_bulan['profit'].cumsum()
                         fig_bulan = px.line(df_bulan, x=time_col, y='cumulative_profit',
-                                            labels={time_col: 'Tanggal', 'cumulative_profit': 'Profit Kumulatif'})
+                                            labels={time_col: 'Kickoff', 'cumulative_profit': 'Profit Kumulatif'})
                         fig_bulan.update_layout(height=120, margin=dict(l=0, r=0, t=0, b=0))
                         fig_bulan.update_xaxes(tickformat='%d/%m')
                         st.plotly_chart(fig_bulan, use_container_width=True)
