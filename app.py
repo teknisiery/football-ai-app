@@ -1164,12 +1164,17 @@ def evaluate_model(storage: StorageProvider) -> dict:
     df['total_goals'] = df['home_goals'] + df['away_goals']
     df['actual_over'] = np.where(df['total_goals'] > df['current_ou'], 1,
                                  np.where(df['total_goals'] < df['current_ou'], 0, np.nan))
-    class_df = df.dropna(subset=['actual_over', 'prediction_ou'])
+    class_df = df.dropna(subset=['actual_over', 'prob_over'])
     if len(class_df) < 2:
         accuracy = precision = recall = f1 = cm = brier = logloss = None
     else:
+        # === KODE BARU (PERBAIKAN) ===
         y_true_cls = class_df['actual_over'].astype(int)
-        y_pred_cls = class_df['prediction_ou'].astype(int)
+    
+        # Gunakan probabilitas over dengan threshold optimasi 0.10
+        OPTIMAL_THRESHOLD = 0.10
+        y_pred_cls = (class_df['prob_over'] >= OPTIMAL_THRESHOLD).astype(int)
+
         accuracy = accuracy_score(y_true_cls, y_pred_cls)
         precision = precision_score(y_true_cls, y_pred_cls, zero_division=0)
         recall = recall_score(y_true_cls, y_pred_cls, zero_division=0)
