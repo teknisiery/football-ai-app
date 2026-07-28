@@ -931,7 +931,7 @@ def get_match_prediction_summary(session: SessionManager, storage: StorageProvid
 
     if prob_over >= 0.10 and ev_over > ev_th_over:
         ou_pred, rec, rec_color, stake = "OVER", "TARUHAN OVER", "a", 100000
-    elif prob_over < 0.10 and ev_under > ev_th_under:
+    elif (1 - prob_over) >= 0.10 and ev_under > ev_th_under:
         ou_pred, rec, rec_color, stake = "UNDER", "TARUHAN UNDER", "a", 100000
     else:
         ou_pred, rec, rec_color, stake = ("OVER" if prob_over >= 0.5 else "UNDER"), "NO BET", "d", 0
