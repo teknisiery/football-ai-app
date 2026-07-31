@@ -52,6 +52,7 @@ LEAGUE_ROUND_CONFIG = {
     198: {'teams': 9, 'matches_per_round': 4},
     197: {'teams': 9, 'matches_per_round': 4},
     192: {'teams': 10, 'matches_per_round': 5},
+    1275: {'teams': 8, 'matches_per_round': 3},
 }
 
 EXPECTED_FEATURES = [
