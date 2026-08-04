@@ -1,0 +1,50 @@
+/* style.css */
+body { background: #0f1117; color: #ffffff; }
+.block-container { padding-top: 2rem; }
+.prediction-card {
+    background: linear-gradient(135deg, #1e293b, #0f172a);
+    border-radius: 24px;
+    padding: 18px 20px 14px 20px;
+    margin: 12px 0;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+    border: 2px solid #2563eb;
+}
+.badge {
+    display: inline-block; padding: 4px 14px; border-radius: 40px;
+    font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
+}
+.badge-s { background: #0d6e0d; color: #ffffff; }
+.badge-a { background: #16a34a; color: #ffffff; }
+.badge-b { background: #2563eb; color: #ffffff; }
+.badge-c { background: #f97316; color: #ffffff; }
+.badge-d { background: #ef4444; color: #ffffff; }
+.brain-row {
+    display: flex; flex-direction: row; justify-content: space-between;
+    align-items: stretch; gap: 10px; flex-wrap: nowrap; width: 100%; margin: 10px 0;
+}
+.brain-card {
+    flex: 1; border-radius: 16px; padding: 12px 6px; text-align: center;
+    color: white; box-shadow: 0 6px 16px rgba(0,0,0,0.25);
+    display: flex; flex-direction: column; justify-content: center; min-width: 0;
+}
+.brain-card .icon { font-size: 1.3rem; margin-bottom: 3px; }
+.brain-card .label { font-size: 0.6rem; opacity: 0.9; text-transform: uppercase; letter-spacing: 0.3px; }
+.brain-card .badge-value {
+    display: inline-block; padding: 4px 10px; border-radius: 12px;
+    font-size: 1.2rem; font-weight: 800; margin-top: 4px;
+}
+.stButton > button {
+    background: linear-gradient(135deg, #2563eb, #1d4ed8);
+    color: white; border-radius: 12px; border: none; padding: 12px 24px;
+    font-weight: 700; font-size: 1rem; transition: all 0.2s;
+    box-shadow: 0 4px 12px rgba(37,99,235,0.4);
+}
+.stButton > button:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(37,99,235,0.6); }
+.stButton > button:disabled { background: #4b5563; box-shadow: none; transform: none; }
+.stFileUploader > div {
+    border-radius: 16px; border: 2px dashed #4b5563; background: #1c1f26; padding: 20px;
+}
+@media (max-width: 768px) {
+    .brain-card .label { font-size: 0.5rem; }
+    .brain-card .badge-value { font-size: 1rem; }
+}
