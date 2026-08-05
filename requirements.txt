@@ -1,5 +1,5 @@
 streamlit==1.59.0
-starlette==0.41.0
+starlette==0.40.0
 pandas
 numpy
 scipy
