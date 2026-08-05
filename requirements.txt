@@ -1,4 +1,10 @@
+# ⚠️ JANGAN UBAH versi Streamlit tanpa sepengetahuan Operator.
+# Streamlit 1.55.0 sengaja dikunci karena versi lebih baru (1.60+)
+# tidak kompatibel dengan starlette terbaru (0.40+).
+# Jika ingin upgrade, uji dulu di Google Colab.
 streamlit==1.55.0
+
+# Library inti
 pandas
 numpy
 scipy
@@ -9,3 +15,6 @@ matplotlib
 imbalanced-learn
 xgboost
 seaborn
+
+# Jangan tambahkan starlette – ia dependensi internal Streamlit.
+# Membatasi starlette secara eksplisit akan merusak lingkungan.
