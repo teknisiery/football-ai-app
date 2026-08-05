@@ -9,3 +9,4 @@ matplotlib
 imbalanced-learn
 xgboost
 seaborn
+starlette<0.46.0
