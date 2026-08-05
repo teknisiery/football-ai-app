@@ -14,8 +14,12 @@ def add_features(df: pd.DataFrame) -> pd.DataFrame:
     if 'open_ou' in cols and 'current_ou' in cols:
         df['ou_movement'] = (df['current_ou'] - df['open_ou']).round(2)
 
-    df['xg_ratio_home'] = (df.get('home_xg',0) / df.get('home_xga',1).replace(0, np.nan)).fillna(0)
-    df['xg_ratio_away'] = (df.get('away_xg',0) / df.get('away_xga',1).replace(0, np.nan)).fillna(0)
+    # Perbaikan: gunakan pd.Series sebagai default agar .replace() tidak error
+    home_xga = df.get('home_xga', pd.Series(1, index=df.index))
+    df['xg_ratio_home'] = (df.get('home_xg', 0) / home_xga.replace(0, np.nan)).fillna(0)
+
+    away_xga = df.get('away_xga', pd.Series(1, index=df.index))
+    df['xg_ratio_away'] = (df.get('away_xg', 0) / away_xga.replace(0, np.nan)).fillna(0)
 
     home_avg = df.get('last5_home_avg_goals', pd.Series(0, index=df.index))
     away_avg = df.get('last5_away_avg_goals', pd.Series(0, index=df.index))
