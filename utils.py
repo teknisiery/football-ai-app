@@ -208,52 +208,61 @@ def parse_odds_1x2_csv(file_content: bytes) -> dict:
         return {}
 
 def parse_combined_odds_csv(file_content: bytes) -> dict:
-    """
-    Parse file CSV gabungan 1X2 dan Correct Score.
-    Format:
-        Baris header 1X2: Home,Draw,Away
-        Baris nilai 1X2
-        Baris kosong
-        Header Correct Score: Type,Score,Odds
-        Data CS...
-    """
     text = file_content.decode('utf-8')
     lines = text.splitlines()
-    result = {'1x2': None, 'cs': None}
+    result = {'1x2': None, 'cs': None, 'open_1x2': None}
 
-    # Cari bagian 1X2
-    idx_1x2 = -1
+    # Format baru: header "open_1x2_home,open_1x2_draw,..." dan satu baris data
     for i, line in enumerate(lines):
-        if 'Home' in line and 'Draw' in line:
-            idx_1x2 = i
+        if 'open_1x2_home' in line and 'current_1x2_home' in line:
+            if i + 1 < len(lines):
+                data_line = lines[i + 1].strip()
+                if data_line:
+                    parts = data_line.split(',')
+                    if len(parts) >= 6:
+                        try:
+                            result['open_1x2'] = {
+                                'home': float(parts[0].strip()),
+                                'draw': float(parts[1].strip()),
+                                'away': float(parts[2].strip())
+                            }
+                            result['1x2'] = {
+                                'home': float(parts[3].strip()),
+                                'draw': float(parts[4].strip()),
+                                'away': float(parts[5].strip())
+                            }
+                        except ValueError:
+                            pass
             break
-    if idx_1x2 >= 0 and idx_1x2 + 1 < len(lines):
-        # Baris berikutnya adalah data 1X2
-        data_line = lines[idx_1x2 + 1].strip()
-        if data_line:
-            parts = data_line.split(',')
-            if len(parts) >= 3:
-                try:
-                    result['1x2'] = {
-                        'home': float(parts[0].strip()),
-                        'draw': float(parts[1].strip()),
-                        'away': float(parts[2].strip())
-                    }
-                except ValueError:
-                    pass
 
-    # Cari bagian Correct Score
+    # Jika tidak ada format baru, cek format lama: "Home,Draw,Away"
+    if result['1x2'] is None:
+        for i, line in enumerate(lines):
+            if 'Home' in line and 'Draw' in line and 'open_1x2' not in line:
+                if i + 1 < len(lines):
+                    data_line = lines[i + 1].strip()
+                    if data_line:
+                        parts = data_line.split(',')
+                        if len(parts) >= 3:
+                            try:
+                                result['1x2'] = {
+                                    'home': float(parts[0].strip()),
+                                    'draw': float(parts[1].strip()),
+                                    'away': float(parts[2].strip())
+                                }
+                            except ValueError:
+                                pass
+                break
+
+    # Cari bagian Correct Score (Type,Score,Odds)
     idx_cs = -1
     for i, line in enumerate(lines):
         if 'Type' in line and 'Score' in line:
             idx_cs = i
             break
     if idx_cs >= 0:
-        # Ambil baris setelah header sampai habis
         cs_lines = lines[idx_cs+1:]
-        # Buat teks baru untuk diparse oleh parse_odds_csv
         cs_text = '\n'.join(cs_lines)
-        # Tambahkan header standar
         cs_content = f"{lines[idx_cs]}\n{cs_text}"
         try:
             result['cs'] = parse_odds_csv(cs_content.encode('utf-8'))
