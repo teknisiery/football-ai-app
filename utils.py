@@ -59,8 +59,6 @@ def parse_odds_csv(file_content: bytes) -> dict:
             score_col = df.columns[1]
             odds_col = df.columns[2]
         else:
-            # Jika dipanggil dari app.py, akan menampilkan st.error
-            # Tapi karena utils.py tidak mengimpor streamlit, kita kembalikan dict kosong
             return {}
     for _, row in df.iterrows():
         try:
@@ -199,3 +197,44 @@ def get_hybrid_top3(score_probs, fair_probs):
     # Ambil 3 teratas
     top3 = sorted(hybrid, key=lambda x: x[2], reverse=True)[:3]
     return [(int(h), int(a), float(p)) for h, a, p in top3]
+
+
+# ============================================================
+# FUNGSI BARU UNTUK 1X2
+# ============================================================
+
+def parse_odds_1x2_csv(file_content: bytes) -> dict:
+    """
+    Parse CSV odds 1X2.
+    Format yang diterima: kolom Home, Draw, Away (dengan header) atau tiga kolom pertama.
+    Mengembalikan dict: {'home': odds, 'draw': odds, 'away': odds}
+    """
+    df = pd.read_csv(BytesIO(file_content))
+    # Coba deteksi kolom berdasarkan nama (case-insensitive)
+    home_col = draw_col = away_col = None
+    for col in df.columns:
+        col_lower = col.lower().strip()
+        if col_lower in ['home', '1']:
+            home_col = col
+        elif col_lower in ['draw', 'x', '0']:
+            draw_col = col
+        elif col_lower in ['away', '2']:
+            away_col = col
+    if home_col is None or draw_col is None or away_col is None:
+        # Fallback: gunakan tiga kolom pertama
+        if len(df.columns) >= 3:
+            home_col = df.columns[0]
+            draw_col = df.columns[1]
+            away_col = df.columns[2]
+        else:
+            return {}
+    # Ambil baris pertama
+    row = df.iloc[0]
+    try:
+        return {
+            'home': float(row[home_col]),
+            'draw': float(row[draw_col]),
+            'away': float(row[away_col])
+        }
+    except:
+        return {}
