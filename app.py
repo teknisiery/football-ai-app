@@ -1661,13 +1661,14 @@ def main():
 
                 # Dropdown untuk memilih liga
                 league_options = [f"[{int(row['league_code'])}] {row['league_name']}" for _, row in profil_league.iterrows()]
-                selected_league_str = st.selectbox("Pilih Liga", league_options, key="edit_league_select")
+                st.selectbox("Pilih Liga", league_options, key="edit_league_select")
 
                 # Tombol Load untuk memuat data liga yang dipilih
                 if st.button("📂 Load Data Liga"):
-                    selected_code = int(selected_league_str.split(']')[0].replace('[', ''))
-                    st.session_state['edit_league_code'] = selected_code
-                    # tidak perlu st.rerun(), biarkan Streamlit mererender ulang secara natural
+                    selected_league_str = st.session_state.get("edit_league_select", "")
+                    if selected_league_str:
+                        selected_code = int(selected_league_str.split(']')[0].replace('[', ''))
+                        st.session_state['edit_league_code'] = selected_code
 
                 # Jika kode liga sudah ada di session state, tampilkan form edit
                 if 'edit_league_code' in st.session_state and st.session_state['edit_league_code'] is not None:
