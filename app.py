@@ -1665,10 +1665,9 @@ def main():
 
                 # Tombol Load untuk memuat data liga yang dipilih
                 if st.button("📂 Load Data Liga"):
-                    # Parsing kode dari string yang dipilih
                     selected_code = int(selected_league_str.split(']')[0].replace('[', ''))
                     st.session_state['edit_league_code'] = selected_code
-                    st.rerun()
+                    # tidak perlu st.rerun(), biarkan Streamlit mererender ulang secara natural
 
                 # Jika kode liga sudah ada di session state, tampilkan form edit
                 if 'edit_league_code' in st.session_state and st.session_state['edit_league_code'] is not None:
