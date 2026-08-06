@@ -139,18 +139,12 @@ def split_quarter_line(ou_line: float) -> List[Tuple[float, float]]:
         return [(ou_line, 1.0)]
 
 # ============================================================
-# FUNGSI BARU UNTUK TASK 16a – HYBRID TOP 3 SCORE
+# FUNGSI HYBRID TOP 3 SCORE
 # ============================================================
 
 def calculate_fair_probs(odds_dict):
-    """
-    Menghitung fair probability (tanpa margin) dari dictionary odds.
-    Mengembalikan dict: {skor: fair_prob, "OTHER": fair_prob_other}
-    """
     if not odds_dict:
         return {}
-    
-    # Hitung 1/odds untuk semua skor
     implied = {}
     other_odds = None
     for key, odds in odds_dict.items():
@@ -159,58 +153,34 @@ def calculate_fair_probs(odds_dict):
             continue
         if odds and odds > 1.0:
             implied[key] = 1.0 / odds
-    
     if other_odds and other_odds > 1.0:
         implied["OTHER"] = 1.0 / other_odds
-    
     total_implied = sum(implied.values())
     if total_implied <= 0:
         return {}
-    
-    # Normalisasi ke fair probability
     fair_probs = {k: v / total_implied for k, v in implied.items()}
     return fair_probs
 
-
 def get_hybrid_top3(score_probs, fair_probs):
-    """
-    Gabungkan probabilitas model dengan fair probability pasar.
-    score_probs: list of (h, a, prob)
-    fair_probs: dict dari calculate_fair_probs
-    """
     if not fair_probs:
-        # Fallback ke Top 3 model biasa
         top3 = sorted(score_probs, key=lambda x: x[2], reverse=True)[:3]
         return [(int(h), int(a), float(p)) for h, a, p in top3]
-    
     hybrid = []
     for h, a, prob in score_probs:
         key = f"{h}:{a}"
-        # Cari fair probability pasar
         market_prob = fair_probs.get(key)
         if market_prob is None:
-            # Coba fallback ke "OTHER" jika skor tidak ada di daftar spesifik
-            market_prob = fair_probs.get("OTHER", 1.0)  # 1.0 = tidak mempengaruhi
-        # Hybrid = model * pasar
+            market_prob = fair_probs.get("OTHER", 1.0)
         hybrid.append((h, a, prob * market_prob))
-    
-    # Ambil 3 teratas
     top3 = sorted(hybrid, key=lambda x: x[2], reverse=True)[:3]
     return [(int(h), int(a), float(p)) for h, a, p in top3]
 
-
 # ============================================================
-# FUNGSI BARU UNTUK 1X2
+# FUNGSI 1X2
 # ============================================================
 
 def parse_odds_1x2_csv(file_content: bytes) -> dict:
-    """
-    Parse CSV odds 1X2.
-    Format yang diterima: kolom Home, Draw, Away (dengan header) atau tiga kolom pertama.
-    Mengembalikan dict: {'home': odds, 'draw': odds, 'away': odds}
-    """
     df = pd.read_csv(BytesIO(file_content))
-    # Coba deteksi kolom berdasarkan nama (case-insensitive)
     home_col = draw_col = away_col = None
     for col in df.columns:
         col_lower = col.lower().strip()
@@ -221,14 +191,12 @@ def parse_odds_1x2_csv(file_content: bytes) -> dict:
         elif col_lower in ['away', '2']:
             away_col = col
     if home_col is None or draw_col is None or away_col is None:
-        # Fallback: gunakan tiga kolom pertama
         if len(df.columns) >= 3:
             home_col = df.columns[0]
             draw_col = df.columns[1]
             away_col = df.columns[2]
         else:
             return {}
-    # Ambil baris pertama
     row = df.iloc[0]
     try:
         return {
@@ -238,3 +206,58 @@ def parse_odds_1x2_csv(file_content: bytes) -> dict:
         }
     except:
         return {}
+
+def parse_combined_odds_csv(file_content: bytes) -> dict:
+    """
+    Parse file CSV gabungan 1X2 dan Correct Score.
+    Format:
+        Baris header 1X2: Home,Draw,Away
+        Baris nilai 1X2
+        Baris kosong
+        Header Correct Score: Type,Score,Odds
+        Data CS...
+    """
+    text = file_content.decode('utf-8')
+    lines = text.splitlines()
+    result = {'1x2': None, 'cs': None}
+
+    # Cari bagian 1X2
+    idx_1x2 = -1
+    for i, line in enumerate(lines):
+        if 'Home' in line and 'Draw' in line:
+            idx_1x2 = i
+            break
+    if idx_1x2 >= 0 and idx_1x2 + 1 < len(lines):
+        # Baris berikutnya adalah data 1X2
+        data_line = lines[idx_1x2 + 1].strip()
+        if data_line:
+            parts = data_line.split(',')
+            if len(parts) >= 3:
+                try:
+                    result['1x2'] = {
+                        'home': float(parts[0].strip()),
+                        'draw': float(parts[1].strip()),
+                        'away': float(parts[2].strip())
+                    }
+                except ValueError:
+                    pass
+
+    # Cari bagian Correct Score
+    idx_cs = -1
+    for i, line in enumerate(lines):
+        if 'Type' in line and 'Score' in line:
+            idx_cs = i
+            break
+    if idx_cs >= 0:
+        # Ambil baris setelah header sampai habis
+        cs_lines = lines[idx_cs+1:]
+        # Buat teks baru untuk diparse oleh parse_odds_csv
+        cs_text = '\n'.join(cs_lines)
+        # Tambahkan header standar
+        cs_content = f"{lines[idx_cs]}\n{cs_text}"
+        try:
+            result['cs'] = parse_odds_csv(cs_content.encode('utf-8'))
+        except:
+            pass
+
+    return result
