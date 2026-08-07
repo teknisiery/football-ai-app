@@ -269,11 +269,13 @@ def add_new_league(league_code, league_name, avg_goals, over25_pct, btts_pct, un
     db_storage.save_dataframe(ResourceRegistry.LEAGUE_PROFILE, profil)
 
     config_file = BASE_DIR / "league_round_config.json"
+    config = {}
     if config_file.exists():
-        with open(config_file) as f:
-            config = json.load(f)
-    else:
-        config = {}
+        try:
+            with open(config_file) as f:
+                config = json.load(f)
+        except json.JSONDecodeError:
+            config = {}
 
     config[str(league_code)] = {'teams': teams, 'matches_per_round': matches_per_round}
     with open(config_file, 'w') as f:
