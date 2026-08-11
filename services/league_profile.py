@@ -6,7 +6,8 @@ from pathlib import Path
 from typing import Optional, Tuple
 import pandas as pd
 
-from config import BASE_DIR, LEAGUE_ROUND_CONFIG, load_league_round_config
+import config
+from config import BASE_DIR, load_league_round_config
 from services.resource_registry import ResourceRegistry
 from services.storage import StorageProvider
 
@@ -75,8 +76,9 @@ def update_league_profile(
     if df_league.empty:
         return
 
-    config = LEAGUE_ROUND_CONFIG.get(league_code)
-    if config and len(df_league) % config['matches_per_round'] != 0:
+    # Gunakan config.LEAGUE_ROUND_CONFIG agar selalu membaca nilai terbaru
+    config_item = config.LEAGUE_ROUND_CONFIG.get(league_code)
+    if config_item and len(df_league) % config_item['matches_per_round'] != 0:
         return
 
     df_league['btts'] = ((df_league['home_goals'] > 0) & (df_league['away_goals'] > 0)).astype(int)
@@ -200,19 +202,19 @@ def add_new_league(
     db_storage.save_dataframe(ResourceRegistry.LEAGUE_PROFILE, profil)
 
     config_file = BASE_DIR / "league_round_config.json"
-    config = {}
+    config_dict = {}
     if config_file.exists():
         try:
             with open(config_file) as f:
-                config = json.load(f)
+                config_dict = json.load(f)
         except json.JSONDecodeError:
-            config = {}
+            config_dict = {}
 
-    config[str(league_code)] = {'teams': teams, 'matches_per_round': matches_per_round}
+    config_dict[str(league_code)] = {'teams': teams, 'matches_per_round': matches_per_round}
     with open(config_file, 'w') as f:
-        json.dump(config, f, indent=2)
+        json.dump(config_dict, f, indent=2)
 
-    # Reload konfigurasi global
+    # Reload konfigurasi global agar semua modul mendapatkan data terbaru
     import config as cfg
     cfg.LEAGUE_ROUND_CONFIG = load_league_round_config()
 
