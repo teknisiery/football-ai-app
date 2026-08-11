@@ -77,7 +77,7 @@ def update_league_profile(
         return
 
     # Gunakan config.LEAGUE_ROUND_CONFIG agar selalu membaca nilai terbaru
-    config_item = config.LEAGUE_ROUND_CONFIG.get(league_code)
+    config_item = config.load_league_round_config().get(league_code)
     if config_item and len(df_league) % config_item['matches_per_round'] != 0:
         return
 
