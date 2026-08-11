@@ -1,12 +1,11 @@
 # services/shadow_predictor.py (updated)
 """
 Pipeline prediksi paralel (shadow mode) berbasis Probability Fusion.
-Menghasilkan prediksi alternatif tanpa memengaruhi output production.
-
 Fase 1 – Arsitektur Baru:
   - Draw probability dari P_STAR (marginal goal difference)
-  - Distribusi Goal Difference
+  - Distribusi Goal Difference terkompresi & exact
   - Top 3 Correct Score dari P_STAR
+  - Metadata versi & bobot fusion
 """
 from typing import Dict, List, Tuple, Optional, Any
 import pandas as pd
@@ -29,7 +28,6 @@ from utils import calculate_fair_probs
 
 
 def _build_model_distribution(score_probs: List[Tuple[int, int, float]]) -> Dict[Tuple[int, int], float]:
-    """Ubah list (h,a,prob) model menjadi dictionary ter-normalisasi."""
     dist = {}
     for h, a, p in score_probs:
         dist[(int(h), int(a))] = float(p)
@@ -37,7 +35,6 @@ def _build_model_distribution(score_probs: List[Tuple[int, int, float]]) -> Dict
 
 
 def _build_league_distribution(league_profile: Dict[str, float]) -> Dict[Tuple[int, int], float]:
-    """Buat distribusi Poisson independen Home & Away dari profil liga."""
     avg_goals = float(league_profile.get('league_avg_goals', 2.5))
     home_win_pct = float(league_profile.get('home_win_pct', 0.40))
     away_win_pct = float(league_profile.get('away_win_pct', 0.30))
@@ -56,11 +53,10 @@ def _build_league_distribution(league_profile: Dict[str, float]) -> Dict[Tuple[i
 
 
 def _compute_goal_diff_distribution(P_STAR: Dict[Tuple[int, int], float]) -> Dict[str, float]:
-    """Hitung distribusi goal difference dari P_STAR."""
+    """Distribusi goal difference terkompresi untuk UI."""
     dist = {}
     for (h, a), prob in P_STAR.items():
         diff = h - a
-        # Kategorisasi: untuk diff di luar -3..+3, kunci sebagai string '-3' atau '+3' atau lebih ekstrem
         if diff <= -3:
             key = "-3"
         elif diff >= 3:
@@ -71,8 +67,16 @@ def _compute_goal_diff_distribution(P_STAR: Dict[Tuple[int, int], float]) -> Dic
     return dist
 
 
+def _compute_goal_diff_exact(P_STAR: Dict[Tuple[int, int], float]) -> Dict[str, float]:
+    """Distribusi goal difference lengkap (untuk Handicap)."""
+    exact = {}
+    for (h, a), prob in P_STAR.items():
+        diff = h - a
+        exact[str(diff)] = exact.get(str(diff), 0.0) + prob
+    return exact
+
+
 def _top3_correct_scores(P_STAR: Dict[Tuple[int, int], float]) -> List[Tuple[int, int, float]]:
-    """Ambil 3 skor dengan probabilitas tertinggi dari P_STAR."""
     sorted_scores = sorted(P_STAR.items(), key=lambda x: x[1], reverse=True)
     return [(int(h), int(a), float(p)) for (h, a), p in sorted_scores[:3]]
 
@@ -85,18 +89,7 @@ def compute_shadow_prediction(
     league_profile_dict: Dict[str, float],
     storage: Any,
 ) -> Dict[str, Any]:
-    """
-    Jalankan pipeline prediksi baru berbasis probability fusion.
-
-    Returns
-    -------
-    dict dengan kunci:
-        shadow_prob_home, shadow_prob_draw, shadow_prob_away,
-        shadow_prob_over, shadow_prob_under, shadow_prob_btts,
-        shadow_goal_diff_distribution (dict),
-        shadow_top3_scores (list of tuples)
-    """
-    # 1. P_MODEL dari score_probs
+    # 1. P_MODEL
     score_probs = r.get('score_probs')
     if not score_probs:
         raise ValueError("score_probs tidak tersedia di prediction result")
@@ -138,25 +131,22 @@ def compute_shadow_prediction(
 
     P_STAR = fuse_score_distributions(distributions, weights)
 
-    # 5. Turunkan probabilitas pasar
+    # 5. Turunkan probabilitas
     ou_line = float(df.get('current_ou', 2.5))
+    # APPROXIMATION UNTUK DISPLAY — EV production memerlukan settlement states penuh
     shadow_prob_over = prob_over(P_STAR, ou_line)
     shadow_prob_under = prob_under(P_STAR, ou_line)
 
-    # 1X2 dari marginal 1X2
     marg_1x2 = marginalize(P_STAR, '1x2')
     shadow_prob_home = marg_1x2['home']
-    shadow_prob_draw = marg_1x2['draw']   # Draw langsung dari P_STAR
+    shadow_prob_draw = marg_1x2['draw']
     shadow_prob_away = marg_1x2['away']
 
-    # BTTS
     marg_btts = marginalize(P_STAR, 'btts')
     shadow_prob_btts = marg_btts['yes']
 
-    # Distribusi Goal Difference
     goal_diff_dist = _compute_goal_diff_distribution(P_STAR)
-
-    # Top 3 Correct Score
+    goal_diff_exact = _compute_goal_diff_exact(P_STAR)
     top3 = _top3_correct_scores(P_STAR)
 
     return {
@@ -166,6 +156,15 @@ def compute_shadow_prediction(
         'shadow_prob_over': shadow_prob_over,
         'shadow_prob_under': shadow_prob_under,
         'shadow_prob_btts': shadow_prob_btts,
-        'shadow_goal_diff_distribution': goal_diff_dist,
+        'shadow_goal_diff_distribution': goal_diff_dist,  # kompatibel dengan UI
+        'shadow_goal_diff_exact': goal_diff_exact,        # untuk Handicap
         'shadow_top3_scores': top3,
+        # Metadata tambahan
+        'shadow_prob_1x2_home': shadow_prob_home,
+        'shadow_prob_1x2_draw': shadow_prob_draw,
+        'shadow_prob_1x2_away': shadow_prob_away,
+        'shadow_prob_btts_yes': shadow_prob_btts,
+        'shadow_prob_btts_no': 1.0 - shadow_prob_btts,
+        'fusion_weights': weights,
+        'fusion_version': '1.0.0',
     }
