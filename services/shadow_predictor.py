@@ -1,11 +1,17 @@
-# services/shadow_predictor.py
+# services/shadow_predictor.py (updated)
 """
 Pipeline prediksi paralel (shadow mode) berbasis Probability Fusion.
 Menghasilkan prediksi alternatif tanpa memengaruhi output production.
+
+Fase 1 – Arsitektur Baru:
+  - Draw probability dari P_STAR (marginal goal difference)
+  - Distribusi Goal Difference
+  - Top 3 Correct Score dari P_STAR
 """
 from typing import Dict, List, Tuple, Optional, Any
 import pandas as pd
 import numpy as np
+import json
 from scipy.stats import poisson
 
 from services.probability_fusion import (
@@ -49,6 +55,28 @@ def _build_league_distribution(league_profile: Dict[str, float]) -> Dict[Tuple[i
     return normalize_score_distribution(dist)
 
 
+def _compute_goal_diff_distribution(P_STAR: Dict[Tuple[int, int], float]) -> Dict[str, float]:
+    """Hitung distribusi goal difference dari P_STAR."""
+    dist = {}
+    for (h, a), prob in P_STAR.items():
+        diff = h - a
+        # Kategorisasi: untuk diff di luar -3..+3, kunci sebagai string '-3' atau '+3' atau lebih ekstrem
+        if diff <= -3:
+            key = "-3"
+        elif diff >= 3:
+            key = "+3"
+        else:
+            key = f"{diff:+d}"
+        dist[key] = dist.get(key, 0.0) + prob
+    return dist
+
+
+def _top3_correct_scores(P_STAR: Dict[Tuple[int, int], float]) -> List[Tuple[int, int, float]]:
+    """Ambil 3 skor dengan probabilitas tertinggi dari P_STAR."""
+    sorted_scores = sorted(P_STAR.items(), key=lambda x: x[1], reverse=True)
+    return [(int(h), int(a), float(p)) for (h, a), p in sorted_scores[:3]]
+
+
 def compute_shadow_prediction(
     r: Dict[str, Any],
     df: pd.Series,
@@ -60,20 +88,13 @@ def compute_shadow_prediction(
     """
     Jalankan pipeline prediksi baru berbasis probability fusion.
 
-    Parameters
-    ----------
-    r : dict hasil prediksi model saat ini (berisi score_probs, prob_over, dll)
-    df : pd.Series data pertandingan yang sudah di-feature-engineer
-    odds_1x2_dict : dict | None, odds 1X2 mentah (home/draw/away)
-    odds_dict : dict | None, odds Correct Score mentah
-    league_profile_dict : dict, statistik liga (league_avg_goals, home_win_pct, dll)
-    storage : StorageProvider (tidak digunakan langsung, disediakan untuk konsistensi)
-
     Returns
     -------
     dict dengan kunci:
-        shadow_prob_over, shadow_prob_under, shadow_prob_home,
-        shadow_prob_draw, shadow_prob_away, shadow_prob_btts
+        shadow_prob_home, shadow_prob_draw, shadow_prob_away,
+        shadow_prob_over, shadow_prob_under, shadow_prob_btts,
+        shadow_goal_diff_distribution (dict),
+        shadow_top3_scores (list of tuples)
     """
     # 1. P_MODEL dari score_probs
     score_probs = r.get('score_probs')
@@ -84,26 +105,21 @@ def compute_shadow_prediction(
     # 2. P_MARKET
     P_MARKET = None
     if odds_dict:
-        # Konversi odds CS ke probabilitas (fair)
-        fair_probs_cs = calculate_fair_probs(odds_dict)
-        if fair_probs_cs:
-            P_CS = de_vig_correct_score(
-                odds_dict,  # menggunakan odds mentah, fungsi internal akan konversi
-                method='poisson_tail',
-                model_score_probs=score_probs,
-            )
-            # Rekonsiliasi dengan 1X2 jika tersedia
-            if odds_1x2_dict and P_CS:
-                implied_1x2 = {k: 1.0 / v for k, v in odds_1x2_dict.items() if v and v > 1.0}
-                total_implied = sum(implied_1x2.values())
-                if total_implied > 0:
-                    fair_1x2 = {k: v / total_implied for k, v in implied_1x2.items()}
-                    P_MARKET = reconcile_cs_with_1x2(P_CS, fair_1x2)
-                else:
-                    P_MARKET = P_CS
+        P_CS = de_vig_correct_score(
+            odds_dict,
+            method='poisson_tail',
+            model_score_probs=score_probs,
+        )
+        if odds_1x2_dict and P_CS:
+            implied_1x2 = {k: 1.0 / v for k, v in odds_1x2_dict.items() if v and v > 1.0}
+            total_implied = sum(implied_1x2.values())
+            if total_implied > 0:
+                fair_1x2 = {k: v / total_implied for k, v in implied_1x2.items()}
+                P_MARKET = reconcile_cs_with_1x2(P_CS, fair_1x2)
             else:
                 P_MARKET = P_CS
-    # Jika P_MARKET masih None, lewati
+        else:
+            P_MARKET = P_CS
 
     # 3. P_LEAGUE
     P_LEAGUE = _build_league_distribution(league_profile_dict)
@@ -117,8 +133,6 @@ def compute_shadow_prediction(
     distributions.append(P_LEAGUE)
     weights.append(0.15)
 
-    # Normalisasi bobot sesuai jumlah distribusi yang ada
-    # (Jika tidak ada P_MARKET, bobot model dan liga akan menjadi 0.55/(0.55+0.15) dan 0.15/(0.55+0.15))
     total_weight = sum(weights)
     weights = [w / total_weight for w in weights]
 
@@ -129,21 +143,29 @@ def compute_shadow_prediction(
     shadow_prob_over = prob_over(P_STAR, ou_line)
     shadow_prob_under = prob_under(P_STAR, ou_line)
 
-    # 1X2
+    # 1X2 dari marginal 1X2
     marg_1x2 = marginalize(P_STAR, '1x2')
     shadow_prob_home = marg_1x2['home']
-    shadow_prob_draw = marg_1x2['draw']
+    shadow_prob_draw = marg_1x2['draw']   # Draw langsung dari P_STAR
     shadow_prob_away = marg_1x2['away']
 
     # BTTS
     marg_btts = marginalize(P_STAR, 'btts')
     shadow_prob_btts = marg_btts['yes']
 
+    # Distribusi Goal Difference
+    goal_diff_dist = _compute_goal_diff_distribution(P_STAR)
+
+    # Top 3 Correct Score
+    top3 = _top3_correct_scores(P_STAR)
+
     return {
-        'shadow_prob_over': shadow_prob_over,
-        'shadow_prob_under': shadow_prob_under,
         'shadow_prob_home': shadow_prob_home,
         'shadow_prob_draw': shadow_prob_draw,
         'shadow_prob_away': shadow_prob_away,
+        'shadow_prob_over': shadow_prob_over,
+        'shadow_prob_under': shadow_prob_under,
         'shadow_prob_btts': shadow_prob_btts,
+        'shadow_goal_diff_distribution': goal_diff_dist,
+        'shadow_top3_scores': top3,
     }
