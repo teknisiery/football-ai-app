@@ -3,8 +3,7 @@
 from typing import Dict, Any
 from scipy.stats import poisson
 from utils import calc_kelly
-from services.resource_registry import ResourceRegistry
-from app import ThresholdService  # tetap gunakan ThresholdService dari app.py untuk sementara
+from services.threshold_service import ThresholdService
 
 
 def calculate_live_recommendation(
@@ -33,7 +32,6 @@ def calculate_live_recommendation(
     lam_home_sisa = lam_home * (menit_tersisa / 90.0)
     lam_away_sisa = lam_away * (menit_tersisa / 90.0)
 
-    # Momentum adjustment
     faktor_home = 1.0
     faktor_away = 1.0
     if home_goals_live < away_goals_live:
@@ -46,6 +44,7 @@ def calculate_live_recommendation(
             faktor_home, faktor_away = 0.90, 1.10
         else:
             faktor_home, faktor_away = 1.0, 0.95
+
     lam_home_adj = lam_home_sisa * faktor_home
     lam_away_adj = lam_away_sisa * faktor_away
 
