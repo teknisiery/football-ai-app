@@ -1,5 +1,5 @@
 # services/odds_handler.py
-"""Handler untuk upload dan penyimpanan odds (1X2, Correct Score)."""
+"""Handler untuk upload dan penyimpanan odds (1X2, Correct Score, AH, BTTS)."""
 from typing import Dict, Any, Optional
 import pandas as pd
 
@@ -13,7 +13,7 @@ def process_combined_odds(
     storage,
 ) -> Dict[str, Any]:
     """
-    Parse file CSV combined 1X2 + Correct Score, lalu simpan ke history CS odds.
+    Parse file CSV combined 1X2 + Correct Score + AH + BTTS, lalu simpan ke history CS odds.
 
     Parameters
     ----------
@@ -28,7 +28,8 @@ def process_combined_odds(
     -------
     dict
         Hasil parsing dengan struktur:
-        {'1x2': dict | None, 'cs': dict | None, 'open_1x2': dict | None, 'errors': list, ...}
+        {'1x2': dict | None, 'cs': dict | None, 'open_1x2': dict | None,
+         'ah': dict | None, 'btts': dict | None, 'errors': list, ...}
     """
     combined = parse_combined_odds_csv(file_content)
     if not combined:
@@ -48,11 +49,18 @@ def _save_cs_odds_history(
     storage,
 ) -> None:
     """Simpan atau perbarui baris di correct_score_odds_history.csv."""
-    # Siapkan baris data dari konten CSV asli (format wide)
     text = file_content.decode('utf-8-sig')
     idx = text.find('Type,Score,Odds')
     if idx != -1:
-        cs_only = text[idx:].encode('utf-8')
+        cs_section = text[idx:]
+        # Potong sebelum blok AH atau BTTS agar hanya bagian CS murni yang diproses
+        ah_idx = cs_section.find('open_ah_line')
+        btts_idx = cs_section.find('open_btts_yes')
+        cut_idx = min(
+            ah_idx if ah_idx != -1 else len(cs_section),
+            btts_idx if btts_idx != -1 else len(cs_section)
+        )
+        cs_only = cs_section[:cut_idx].strip().encode('utf-8')
     else:
         cs_only = file_content
 
