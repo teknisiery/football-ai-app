@@ -153,37 +153,25 @@ def render_prediction_card(summary: dict):
             unsafe_allow_html=True
         )
 
-    # Fair odds BTTS dan Value Analysis hanya jika market odds tersedia (dari file unggahan)
+    # Fair odds BTTS dengan indikator warna
     market_yes = summary.get('market_odds_btts_yes')
     market_no = summary.get('market_odds_btts_no')
     prob_btts_val = summary.get('prob_btts')
     if market_yes is not None and market_no is not None and prob_btts_val is not None and 0 < prob_btts_val < 1:
         fair_yes = 1.0 / prob_btts_val
         fair_no = 1.0 / (1.0 - prob_btts_val)
+        
+        color_yes = "#16a34a" if market_yes > fair_yes else "#ef4444"
+        color_no = "#16a34a" if market_no > fair_no else "#ef4444"
+        
         st.markdown(
-            f"<p style='text-align:center; font-size:0.7rem; color:#a0a0b0;'>"
-            f"Fair Odds YES: {fair_yes:.2f} | Fair Odds NO: {fair_no:.2f}"
+            f"<p style='text-align:center; font-size:0.75rem; margin:4px 0;'>"
+            f"<span style='color:{color_yes}; font-weight:600;'>Fair YES: {fair_yes:.2f}</span>"
+            f" (Market: {market_yes:.2f}) | "
+            f"<span style='color:{color_no}; font-weight:600;'>Fair NO: {fair_no:.2f}</span>"
+            f" (Market: {market_no:.2f})"
             f"</p>",
             unsafe_allow_html=True
         )
-
-        # Tidak perlu input manual, langsung tampilkan value analysis dari odds current
-        value_yes = market_yes - fair_yes
-        value_no = market_no - fair_no
-
-        st.markdown("**📊 Value Analysis**")
-        if value_yes > 0.05:
-            st.success(f"🟢 BTTS YES: Market {market_yes:.2f} > Fair {fair_yes:.2f} (Value +{value_yes:.2f})")
-        elif value_yes < -0.05:
-            st.error(f"🔴 BTTS YES: Market {market_yes:.2f} < Fair {fair_yes:.2f} (No Value)")
-        else:
-            st.info(f"⚪ BTTS YES: Market {market_yes:.2f} ≈ Fair {fair_yes:.2f} (Netral)")
-
-        if value_no > 0.05:
-            st.success(f"🟢 BTTS NO: Market {market_no:.2f} > Fair {fair_no:.2f} (Value +{value_no:.2f})")
-        elif value_no < -0.05:
-            st.error(f"🔴 BTTS NO: Market {market_no:.2f} < Fair {fair_no:.2f} (No Value)")
-        else:
-            st.info(f"⚪ BTTS NO: Market {market_no:.2f} ≈ Fair {fair_no:.2f} (Netral)")
 
     st.markdown("</div>", unsafe_allow_html=True)
