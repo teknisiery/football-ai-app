@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 from io import BytesIO
 from datetime import datetime
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict
 
 def safe_html(text: str) -> str:
     return (text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
@@ -44,6 +44,7 @@ def normalize_kickoff(dt_str):
         return None
 
 def parse_odds_csv(file_content: bytes) -> dict:
+    # (fungsi tetap sama, tidak diubah)
     df = pd.read_csv(BytesIO(file_content))
     odds_dict = {}
     score_col = None
@@ -207,21 +208,42 @@ def parse_odds_1x2_csv(file_content: bytes) -> dict:
     except:
         return {}
 
-def parse_combined_odds_csv(file_content: bytes) -> dict:
-    """Robust parser for the combined 1X2 + Correct Score CSV format.
 
-    Accepts the current production format used by the app, including a
-    1X2 header/data block followed by a Type,Score,Odds block.  Parsing is
-    intentionally tolerant of BOM, whitespace, capitalization and blank lines.
-    Returns a diagnostics-rich dictionary so the UI can explain failures
-    instead of silently doing nothing.
-    """
+def _parse_ah_line(val: str) -> float:
+    """Convert AH line from string like '0.5/1' to decimal."""
+    val = val.strip()
+    if '/' in val:
+        parts = val.split('/')
+        try:
+            a = float(parts[0])
+            b = float(parts[1])
+            return (a + b) / 2.0
+        except:
+            return 0.0
+    else:
+        try:
+            return float(val)
+        except:
+            return 0.0
+
+
+def _convert_hk_odds(odds: List[float]) -> List[float]:
+    """Convert Hong Kong odds to decimal (+1) if all < 2.0, else keep."""
+    if all(o < 2.0 for o in odds):
+        return [o + 1.0 for o in odds]
+    return odds
+
+
+def parse_combined_odds_csv(file_content: bytes) -> Dict[str, Any]:
+    """Robust parser for the combined 1X2 + Correct Score + Asian Handicap + BTTS CSV."""
     import csv
 
     result = {
         '1x2': None,
         'cs': None,
         'open_1x2': None,
+        'ah': None,
+        'btts': None,
         'errors': [],
         'warnings': [],
         'format': None,
@@ -250,7 +272,7 @@ def parse_combined_odds_csv(file_content: bytes) -> dict:
         return str(x).strip().lower().replace('\ufeff', '')
 
     # -------------------------
-    # 1X2 block
+    # 1X2 block (sama seperti sebelumnya)
     # -------------------------
     for i, line in enumerate(lines):
         try:
@@ -281,7 +303,7 @@ def parse_combined_odds_csv(file_content: bytes) -> dict:
                 result['errors'].append('Baris data 1X2 tidak ditemukan.')
             break
 
-    # Legacy/current simple 1X2 block, if the structured block was absent.
+    # Legacy simple 1X2
     if result['1x2'] is None:
         for i, line in enumerate(lines):
             try:
@@ -335,9 +357,6 @@ def parse_combined_odds_csv(file_content: bytes) -> dict:
                     continue
                 if odd <= 1.0:
                     continue
-                # Preserve the application's existing parse_odds_csv semantics:
-                # the source file expresses Away scores from the away side's
-                # perspective (1:0 means 0:1 in Home:Away notation).
                 if norm(score) == 'other':
                     key = 'OTHER'
                 else:
@@ -355,6 +374,98 @@ def parse_combined_odds_csv(file_content: bytes) -> dict:
         except Exception as e:
             result['errors'].append(f'Correct Score tidak valid: {e}')
 
+    # -------------------------
+    # Asian Handicap block (setelah CS)
+    # -------------------------
+    ah_start = None
+    for i in range(cs_start + 1 if cs_start else 0, len(lines)):
+        try:
+            row = [norm(x) for x in next(csv.reader([lines[i]]))]
+        except Exception:
+            continue
+        if any('ah_line' in x or 'ah_home' in x or 'ah_away' in x for x in row):
+            ah_start = i
+            break
+
+    if ah_start is not None:
+        try:
+            reader = csv.reader(lines[ah_start:])
+            header = [norm(x) for x in next(reader)]
+            # Cari indeks kolom
+            def find_col(*names):
+                for name in names:
+                    if name in header:
+                        return header.index(name)
+                return None
+            open_line_idx = find_col('open_ah_line')
+            open_home_idx = find_col('open_ah_home')
+            open_away_idx = find_col('open_ah_away')
+            cur_line_idx = find_col('current_ah_line')
+            cur_home_idx = find_col('current_ah_home')
+            cur_away_idx = find_col('current_ah_away')
+            if None in (open_line_idx, open_home_idx, open_away_idx, cur_line_idx, cur_home_idx, cur_away_idx):
+                result['errors'].append('Kolom Asian Handicap tidak lengkap.')
+            else:
+                data_row = next(reader)
+                # Konversi line dan odds
+                open_line = _parse_ah_line(data_row[open_line_idx])
+                cur_line = _parse_ah_line(data_row[cur_line_idx])
+                raw_odds = [
+                    float(data_row[open_home_idx]),
+                    float(data_row[open_away_idx]),
+                    float(data_row[cur_home_idx]),
+                    float(data_row[cur_away_idx])
+                ]
+                odds_dec = _convert_hk_odds(raw_odds)
+                result['ah'] = {
+                    'open_line': open_line,
+                    'open_home': odds_dec[0],
+                    'open_away': odds_dec[1],
+                    'current_line': cur_line,
+                    'current_home': odds_dec[2],
+                    'current_away': odds_dec[3]
+                }
+        except Exception as e:
+            result['errors'].append(f'Asian Handicap tidak valid: {e}')
+
+    # -------------------------
+    # BTTS block (setelah AH atau setelah CS)
+    # -------------------------
+    btts_start = None
+    search_start = (ah_start + 1) if ah_start else (cs_start + 1 if cs_start else 0)
+    for i in range(search_start, len(lines)):
+        try:
+            row = [norm(x) for x in next(csv.reader([lines[i]]))]
+        except Exception:
+            continue
+        if 'open_btts_yes' in row or 'current_btts_yes' in row:
+            btts_start = i
+            break
+
+    if btts_start is not None:
+        try:
+            reader = csv.reader(lines[btts_start:])
+            header = [norm(x) for x in next(reader)]
+            def find_col(name):
+                if name in header: return header.index(name)
+                return None
+            open_yes_idx = find_col('open_btts_yes')
+            open_no_idx = find_col('open_btts_no')
+            cur_yes_idx = find_col('current_btts_yes')
+            cur_no_idx = find_col('current_btts_no')
+            if None in (open_yes_idx, open_no_idx, cur_yes_idx, cur_no_idx):
+                result['errors'].append('Kolom BTTS tidak lengkap.')
+            else:
+                data_row = next(reader)
+                result['btts'] = {
+                    'open_yes': float(data_row[open_yes_idx]),
+                    'open_no': float(data_row[open_no_idx]),
+                    'current_yes': float(data_row[cur_yes_idx]),
+                    'current_no': float(data_row[cur_no_idx])
+                }
+        except Exception as e:
+            result['errors'].append(f'BTTS tidak valid: {e}')
+
     if result['1x2'] is None:
         result['errors'].append('Odds 1X2 tidak ditemukan.')
     if result['cs'] is None:
@@ -364,4 +475,3 @@ def parse_combined_odds_csv(file_content: bytes) -> dict:
         result['warnings'].append(f"Berhasil membaca 1X2 + {len(result['cs'])} Correct Score odds.")
 
     return result
-
