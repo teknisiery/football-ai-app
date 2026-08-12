@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 from io import BytesIO
 from datetime import datetime
-from typing import List, Tuple, Optional, Dict
+from typing import List, Tuple, Optional, Dict, Any
 
 def safe_html(text: str) -> str:
     return (text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
@@ -44,7 +44,6 @@ def normalize_kickoff(dt_str):
         return None
 
 def parse_odds_csv(file_content: bytes) -> dict:
-    # (fungsi tetap sama, tidak diubah)
     df = pd.read_csv(BytesIO(file_content))
     odds_dict = {}
     score_col = None
@@ -235,7 +234,7 @@ def _convert_hk_odds(odds: List[float]) -> List[float]:
 
 
 def parse_combined_odds_csv(file_content: bytes) -> Dict[str, Any]:
-    """Robust parser for the combined 1X2 + Correct Score + Asian Handicap + BTTS CSV."""
+    """Robust parser untuk format gabungan 1X2 + Correct Score + Asian Handicap + BTTS."""
     import csv
 
     result = {
@@ -272,7 +271,7 @@ def parse_combined_odds_csv(file_content: bytes) -> Dict[str, Any]:
         return str(x).strip().lower().replace('\ufeff', '')
 
     # -------------------------
-    # 1X2 block (sama seperti sebelumnya)
+    # 1X2 block
     # -------------------------
     for i, line in enumerate(lines):
         try:
@@ -342,11 +341,17 @@ def parse_combined_odds_csv(file_content: bytes) -> Dict[str, Any]:
         try:
             reader = csv.reader(lines[cs_start:])
             header = [norm(x) for x in next(reader)]
-            idx_type, idx_score, idx_odds = header.index('type'), header.index('score'), header.index('odds')
+            idx_type = header.index('type')
+            idx_score = header.index('score')
+            idx_odds = header.index('odds')
             cs = {}
             for row in reader:
-                if len(row) <= max(idx_type, idx_score, idx_odds):
+                # Baris kosong atau tidak cukup kolom dilewati
+                if len(row) < 3:
                     continue
+                # Hentikan jika bertemu header blok berikutnya (jumlah kolom bukan 3 atau mengandung kata kunci AH/BTTS)
+                if len(row) != 3 or any(kw in norm(row[0]) for kw in ['ah_line', 'ah_home', 'btts_yes', 'btts_no']):
+                    break
                 score = str(row[idx_score]).strip().upper()
                 bet_type = str(row[idx_type]).strip().lower()
                 if not score:
@@ -391,7 +396,6 @@ def parse_combined_odds_csv(file_content: bytes) -> Dict[str, Any]:
         try:
             reader = csv.reader(lines[ah_start:])
             header = [norm(x) for x in next(reader)]
-            # Cari indeks kolom
             def find_col(*names):
                 for name in names:
                     if name in header:
@@ -407,7 +411,6 @@ def parse_combined_odds_csv(file_content: bytes) -> Dict[str, Any]:
                 result['errors'].append('Kolom Asian Handicap tidak lengkap.')
             else:
                 data_row = next(reader)
-                # Konversi line dan odds
                 open_line = _parse_ah_line(data_row[open_line_idx])
                 cur_line = _parse_ah_line(data_row[cur_line_idx])
                 raw_odds = [
