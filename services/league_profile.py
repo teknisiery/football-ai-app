@@ -22,7 +22,13 @@ def get_league_profile(
         return state.league_profile_cache
     if storage.exists(ResourceRegistry.LEAGUE_PROFILE):
         state.league_profile_cache = storage.load_dataframe(ResourceRegistry.LEAGUE_PROFILE)
-        for col, default in [('home_win_pct', 0.40), ('away_win_pct', 0.30), ('draw_pct', 0.30)]:
+        # Pastikan kolom default selalu ada
+        for col, default in [
+            ('home_win_pct', 0.40),
+            ('away_win_pct', 0.30),
+            ('draw_pct', 0.30),
+            ('score_combination_distribution', '{}'),
+        ]:
             if col not in state.league_profile_cache.columns:
                 state.league_profile_cache[col] = default
     else:
@@ -60,26 +66,18 @@ def update_league_profile(
 ) -> None:
     """
     Perbarui profil liga secara inkremental berdasarkan satu pertandingan yang baru selesai.
-
-    match_data minimal harus berisi:
-        home_goals, away_goals, totalgol_ft
-    Opsional:
-        home_ht_goals, away_ht_goals, totalgol_ht
     """
-    # Muat profil liga
     if not storage.exists(ResourceRegistry.LEAGUE_PROFILE):
         return
     profile_df = storage.load_dataframe(ResourceRegistry.LEAGUE_PROFILE)
 
-    # Cari baris liga
     mask = profile_df['league_code'] == league_code
     if not mask.any():
-        return  # Tidak buat otomatis jika liga belum ada
+        return
 
     idx = profile_df[mask].index[0]
     row = profile_df.loc[idx]
 
-    # Ambil nilai saat ini
     total_matches = int(row.get('total_matches', 0) or 0)
     avg_goals = float(row.get('league_avg_goals', 2.5) or 2.5)
     over25_pct = float(row.get('league_over25_pct', 0.5) or 0.5)
@@ -89,7 +87,7 @@ def update_league_profile(
     draw_pct = float(row.get('draw_pct', 0.30) or 0.30)
     away_win_pct = float(row.get('away_win_pct', 0.30) or 0.30)
 
-    # Ambil dan parse distribusi kombinasi skor
+    # Distribusi kombinasi skor
     raw_comb_dist = row.get('score_combination_distribution', '{}')
     if pd.isna(raw_comb_dist) or raw_comb_dist is None:
         raw_comb_dist = '{}'
@@ -98,12 +96,10 @@ def update_league_profile(
     except Exception:
         comb_dist = {}
 
-    # Data pertandingan baru
     home_goals = int(match_data.get('home_goals', 0) or 0)
     away_goals = int(match_data.get('away_goals', 0) or 0)
     totalgol_ft = int(match_data.get('totalgol_ft', home_goals + away_goals) or 0)
 
-    # Indikator pertandingan baru
     is_over25 = 1 if totalgol_ft > 2.5 else 0
     is_btts = 1 if home_goals > 0 and away_goals > 0 else 0
     is_under35 = 1 if totalgol_ft < 3.5 else 0
@@ -111,7 +107,6 @@ def update_league_profile(
     is_draw = 1 if home_goals == away_goals else 0
     is_away_win = 1 if home_goals < away_goals else 0
 
-    # Total baru
     new_total_matches = total_matches + 1
 
     new_avg_goals = (avg_goals * total_matches + totalgol_ft) / new_total_matches
@@ -122,8 +117,10 @@ def update_league_profile(
     new_draw_pct = (draw_pct * total_matches + is_draw) / new_total_matches
     new_away_win_pct = (away_win_pct * total_matches + is_away_win) / new_total_matches
 
-    # Update distribusi kombinasi skor
-    if home_goals > away_goals:
+    # Tentukan kunci kombinasi; gabungkan skor 5+ ke "Other"
+    if home_goals >= 5 or away_goals >= 5:
+        comb_key = "Other"
+    elif home_goals > away_goals:
         comb_key = f"{home_goals}:{away_goals}"
     elif home_goals < away_goals:
         comb_key = f"{away_goals}:{home_goals}"
@@ -138,9 +135,6 @@ def update_league_profile(
     # Tambahkan kunci baru
     comb_dist[comb_key] = comb_dist.get(comb_key, 0.0) + (1.0 / new_total_matches)
 
-    # Pastikan total ≈ 1.0 (karena operasi float, bisa ada selisih kecil)
-    # Tidak perlu normalisasi ulang karena secara matematis total tetap 1.
-
     # Update baris liga
     profile_df.at[idx, 'total_matches'] = new_total_matches
     profile_df.at[idx, 'league_avg_goals'] = new_avg_goals
@@ -152,14 +146,11 @@ def update_league_profile(
     profile_df.at[idx, 'away_win_pct'] = new_away_win_pct
     profile_df.at[idx, 'score_combination_distribution'] = json.dumps(comb_dist)
 
-    # Simpan profil
     storage.save_dataframe(ResourceRegistry.LEAGUE_PROFILE, profile_df)
 
-    # Invalidasi cache session jika ada
     if session:
         session.invalidate_league_profile_cache()
 
-    # Catat history
     history_row = {
         'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         'league_code': league_code,
@@ -232,7 +223,6 @@ def add_new_league(
     with open(config_file, 'w') as f:
         json.dump(config_dict, f, indent=2)
 
-    # Reload konfigurasi global
     import config as cfg
     cfg.LEAGUE_ROUND_CONFIG = load_league_round_config()
 
