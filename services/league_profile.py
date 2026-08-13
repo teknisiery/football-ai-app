@@ -27,6 +27,8 @@ def get_league_profile(
             ('home_win_pct', 0.40),
             ('away_win_pct', 0.30),
             ('draw_pct', 0.30),
+            ('home_avg_goals', 1.20),
+            ('away_avg_goals', 0.90),
             ('score_combination_distribution', '{}'),
         ]:
             if col not in state.league_profile_cache.columns:
@@ -48,7 +50,9 @@ def attach_league_profile(
     defaults = {
         'league_avg_goals': 2.5, 'league_over25_pct': 0.5, 'league_btts_pct': 0.5,
         'league_under35_pct': 0.7, 'league_name': 'Unknown League',
-        'home_win_pct': 0.40, 'away_win_pct': 0.30, 'draw_pct': 0.30
+        'home_win_pct': 0.40, 'away_win_pct': 0.30, 'draw_pct': 0.30,
+        'home_avg_goals': 1.20, 'away_avg_goals': 0.90,
+        'score_combination_distribution': '{}',
     }
     for col, val in defaults.items():
         if col not in df.columns:
@@ -86,6 +90,8 @@ def update_league_profile(
     home_win_pct = float(row.get('home_win_pct', 0.40) or 0.40)
     draw_pct = float(row.get('draw_pct', 0.30) or 0.30)
     away_win_pct = float(row.get('away_win_pct', 0.30) or 0.30)
+    home_avg_goals = float(row.get('home_avg_goals', 1.20) or 1.20)
+    away_avg_goals = float(row.get('away_avg_goals', 0.90) or 0.90)
 
     # Distribusi kombinasi skor
     raw_comb_dist = row.get('score_combination_distribution', '{}')
@@ -116,6 +122,8 @@ def update_league_profile(
     new_home_win_pct = (home_win_pct * total_matches + is_home_win) / new_total_matches
     new_draw_pct = (draw_pct * total_matches + is_draw) / new_total_matches
     new_away_win_pct = (away_win_pct * total_matches + is_away_win) / new_total_matches
+    new_home_avg_goals = (home_avg_goals * total_matches + home_goals) / new_total_matches
+    new_away_avg_goals = (away_avg_goals * total_matches + away_goals) / new_total_matches
 
     # Tentukan kunci kombinasi; gabungkan skor 5+ ke "Other"
     if home_goals >= 5 or away_goals >= 5:
@@ -144,6 +152,8 @@ def update_league_profile(
     profile_df.at[idx, 'home_win_pct'] = new_home_win_pct
     profile_df.at[idx, 'draw_pct'] = new_draw_pct
     profile_df.at[idx, 'away_win_pct'] = new_away_win_pct
+    profile_df.at[idx, 'home_avg_goals'] = new_home_avg_goals
+    profile_df.at[idx, 'away_avg_goals'] = new_away_avg_goals
     profile_df.at[idx, 'score_combination_distribution'] = json.dumps(comb_dist)
 
     storage.save_dataframe(ResourceRegistry.LEAGUE_PROFILE, profile_df)
@@ -205,6 +215,8 @@ def add_new_league(
         'home_win_pct': 0.40,
         'away_win_pct': 0.30,
         'draw_pct': 0.30,
+        'home_avg_goals': 1.20,
+        'away_avg_goals': 0.90,
         'score_combination_distribution': '{}',
     }
     profil = pd.concat([profil, pd.DataFrame([new_row])], ignore_index=True)
