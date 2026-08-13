@@ -89,16 +89,16 @@ def update_league_profile(
     draw_pct = float(row.get('draw_pct', 0.30) or 0.30)
     away_win_pct = float(row.get('away_win_pct', 0.30) or 0.30)
 
-    # Total kejadian lama
-    total_goals_old = avg_goals * total_matches
-    total_over25_old = over25_pct * total_matches
-    total_btts_old = btts_pct * total_matches
-    total_under35_old = under35_pct * total_matches
-    total_home_win_old = home_win_pct * total_matches
-    total_draw_old = draw_pct * total_matches
-    total_away_win_old = away_win_pct * total_matches
+    # Ambil dan parse distribusi kombinasi skor
+    raw_comb_dist = row.get('score_combination_distribution', '{}')
+    if pd.isna(raw_comb_dist) or raw_comb_dist is None:
+        raw_comb_dist = '{}'
+    try:
+        comb_dist = json.loads(raw_comb_dist)
+    except Exception:
+        comb_dist = {}
 
-    # Ambil data pertandingan baru
+    # Data pertandingan baru
     home_goals = int(match_data.get('home_goals', 0) or 0)
     away_goals = int(match_data.get('away_goals', 0) or 0)
     totalgol_ft = int(match_data.get('totalgol_ft', home_goals + away_goals) or 0)
@@ -107,38 +107,50 @@ def update_league_profile(
     is_over25 = 1 if totalgol_ft > 2.5 else 0
     is_btts = 1 if home_goals > 0 and away_goals > 0 else 0
     is_under35 = 1 if totalgol_ft < 3.5 else 0
-    home_win = 1 if home_goals > away_goals else 0
-    draw = 1 if home_goals == away_goals else 0
-    away_win = 1 if home_goals < away_goals else 0
+    is_home_win = 1 if home_goals > away_goals else 0
+    is_draw = 1 if home_goals == away_goals else 0
+    is_away_win = 1 if home_goals < away_goals else 0
 
     # Total baru
-    total_matches_new = total_matches + 1
-    total_goals_new = total_goals_old + totalgol_ft
-    total_over25_new = total_over25_old + is_over25
-    total_btts_new = total_btts_old + is_btts
-    total_under35_new = total_under35_old + is_under35
-    total_home_win_new = total_home_win_old + home_win
-    total_draw_new = total_draw_old + draw
-    total_away_win_new = total_away_win_old + away_win
+    new_total_matches = total_matches + 1
 
-    # Persentase baru
-    avg_goals_new = total_goals_new / total_matches_new if total_matches_new > 0 else avg_goals
-    over25_pct_new = total_over25_new / total_matches_new if total_matches_new > 0 else over25_pct
-    btts_pct_new = total_btts_new / total_matches_new if total_matches_new > 0 else btts_pct
-    under35_pct_new = total_under35_new / total_matches_new if total_matches_new > 0 else under35_pct
-    home_win_pct_new = total_home_win_new / total_matches_new if total_matches_new > 0 else home_win_pct
-    draw_pct_new = total_draw_new / total_matches_new if total_matches_new > 0 else draw_pct
-    away_win_pct_new = total_away_win_new / total_matches_new if total_matches_new > 0 else away_win_pct
+    new_avg_goals = (avg_goals * total_matches + totalgol_ft) / new_total_matches
+    new_over25_pct = (over25_pct * total_matches + is_over25) / new_total_matches
+    new_btts_pct = (btts_pct * total_matches + is_btts) / new_total_matches
+    new_under35_pct = (under35_pct * total_matches + is_under35) / new_total_matches
+    new_home_win_pct = (home_win_pct * total_matches + is_home_win) / new_total_matches
+    new_draw_pct = (draw_pct * total_matches + is_draw) / new_total_matches
+    new_away_win_pct = (away_win_pct * total_matches + is_away_win) / new_total_matches
+
+    # Update distribusi kombinasi skor
+    if home_goals > away_goals:
+        comb_key = f"{home_goals}:{away_goals}"
+    elif home_goals < away_goals:
+        comb_key = f"{away_goals}:{home_goals}"
+    else:
+        comb_key = f"{home_goals}:{away_goals}"
+
+    # Skalakan semua probabilitas lama
+    scale_factor = total_matches / new_total_matches
+    for key in comb_dist.keys():
+        comb_dist[key] = comb_dist[key] * scale_factor
+
+    # Tambahkan kunci baru
+    comb_dist[comb_key] = comb_dist.get(comb_key, 0.0) + (1.0 / new_total_matches)
+
+    # Pastikan total ≈ 1.0 (karena operasi float, bisa ada selisih kecil)
+    # Tidak perlu normalisasi ulang karena secara matematis total tetap 1.
 
     # Update baris liga
-    profile_df.at[idx, 'total_matches'] = total_matches_new
-    profile_df.at[idx, 'league_avg_goals'] = avg_goals_new
-    profile_df.at[idx, 'league_over25_pct'] = over25_pct_new
-    profile_df.at[idx, 'league_btts_pct'] = btts_pct_new
-    profile_df.at[idx, 'league_under35_pct'] = under35_pct_new
-    profile_df.at[idx, 'home_win_pct'] = home_win_pct_new
-    profile_df.at[idx, 'draw_pct'] = draw_pct_new
-    profile_df.at[idx, 'away_win_pct'] = away_win_pct_new
+    profile_df.at[idx, 'total_matches'] = new_total_matches
+    profile_df.at[idx, 'league_avg_goals'] = new_avg_goals
+    profile_df.at[idx, 'league_over25_pct'] = new_over25_pct
+    profile_df.at[idx, 'league_btts_pct'] = new_btts_pct
+    profile_df.at[idx, 'league_under35_pct'] = new_under35_pct
+    profile_df.at[idx, 'home_win_pct'] = new_home_win_pct
+    profile_df.at[idx, 'draw_pct'] = new_draw_pct
+    profile_df.at[idx, 'away_win_pct'] = new_away_win_pct
+    profile_df.at[idx, 'score_combination_distribution'] = json.dumps(comb_dist)
 
     # Simpan profil
     storage.save_dataframe(ResourceRegistry.LEAGUE_PROFILE, profile_df)
@@ -152,11 +164,11 @@ def update_league_profile(
         'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         'league_code': league_code,
         'league_name': row.get('league_name', 'Unknown'),
-        'league_avg_goals': avg_goals_new,
-        'league_over25_pct': over25_pct_new,
-        'league_btts_pct': btts_pct_new,
-        'league_under35_pct': under35_pct_new,
-        'total_matches': total_matches_new,
+        'league_avg_goals': new_avg_goals,
+        'league_over25_pct': new_over25_pct,
+        'league_btts_pct': new_btts_pct,
+        'league_under35_pct': new_under35_pct,
+        'total_matches': new_total_matches,
     }
     history_df = pd.DataFrame([history_row])
     if storage.exists(ResourceRegistry.LEAGUE_PROFILE_HISTORY):
@@ -202,6 +214,7 @@ def add_new_league(
         'home_win_pct': 0.40,
         'away_win_pct': 0.30,
         'draw_pct': 0.30,
+        'score_combination_distribution': '{}',
     }
     profil = pd.concat([profil, pd.DataFrame([new_row])], ignore_index=True)
     db_storage.save_dataframe(ResourceRegistry.LEAGUE_PROFILE, profil)
