@@ -38,6 +38,9 @@ class PendingService:
         full_record['totalgol_ft'] = ft_home_goals + ft_away_goals
         full_record['totalgol_ht'] = ht_home_goals + ht_away_goals
         full_record['settlement_time'] = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Pastikan status VALIDATED terbawa ke history meskipun row_dict tidak mengirimkannya
+        full_record['prediction_status'] = 'VALIDATED'
 
         settlement = SettlementEngine.evaluate(full_record, ft_home_goals, ft_away_goals)
         full_record.update(settlement)
