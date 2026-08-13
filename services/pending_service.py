@@ -75,7 +75,8 @@ class PendingService:
         db.save_pending(pend)
 
         # Perbarui profil liga
+        # Perbarui profil liga secara inkremental dengan data pertandingan ini
         league_code = int(row_dict.get('league_code', 0))
-        update_league_profile(storage, league_code, session)
+        update_league_profile(storage, league_code, full_record, session)
 
         return True, "Skor disimpan dan dipindahkan ke History.", full_record
