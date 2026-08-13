@@ -24,7 +24,6 @@ from services.market_reconciliation import (
     de_vig_correct_score,
     reconcile_cs_with_1x2,
 )
-from utils import calculate_fair_probs
 
 
 def _build_model_distribution(score_probs: List[Tuple[int, int, float]]) -> Dict[Tuple[int, int], float]:
@@ -65,10 +64,7 @@ def _build_league_distribution(league_profile: Dict[str, float]) -> Dict[Tuple[i
     home_ratio = home_avg / (home_avg + away_avg) if (home_avg + away_avg) > 0 else 0.5
 
     # Inisialisasi
-    dist = {}
-    for h in range(max_goals + 1):
-        for a in range(max_goals + 1):
-            dist[(h, a)] = 0.0
+    dist = {(h, a): 0.0 for h in range(max_goals + 1) for a in range(max_goals + 1)}
 
     # Isi dari kombinasi
     for key, prob in comb_dist.items():
@@ -87,21 +83,22 @@ def _build_league_distribution(league_profile: Dict[str, float]) -> Dict[Tuple[i
             if 0 <= g1 <= max_goals:
                 dist[(g1, g1)] += prob
         else:
-            # g1 lebih besar dari g2
+            # g1 lebih besar dari g2 (max,min)
             h_score = (g1, g2)
             a_score = (g2, g1)
             if h_score[0] <= max_goals and h_score[1] <= max_goals:
                 dist[h_score] += prob * home_ratio
             if a_score[0] <= max_goals and a_score[1] <= max_goals:
-                dist[a_score] += prob * (1 - home_ratio)
+                dist[a_score] += prob * (1.0 - home_ratio)
 
     # Alokasikan other_prob ke sel kosong
     if other_prob > 0:
-        poisson_ref = {}
-        for h in range(max_goals + 1):
-            for a in range(max_goals + 1):
-                poisson_ref[(h, a)] = poisson.pmf(h, home_avg) * poisson.pmf(a, away_avg)
-        empty_cells = [(h, a) for (h, a), v in dist.items() if v == 0.0]
+        poisson_ref = {
+            (h, a): poisson.pmf(h, home_avg) * poisson.pmf(a, away_avg)
+            for h in range(max_goals + 1)
+            for a in range(max_goals + 1)
+        }
+        empty_cells = [cell for cell, val in dist.items() if val == 0.0]
         total_mass = sum(poisson_ref.get(cell, 0.0) for cell in empty_cells)
         if total_mass > 0:
             for cell in empty_cells:
@@ -116,7 +113,6 @@ def _build_league_distribution(league_profile: Dict[str, float]) -> Dict[Tuple[i
 
 
 def _compute_goal_diff_distribution(P_STAR: Dict[Tuple[int, int], float]) -> Dict[str, float]:
-    """Distribusi goal difference terkompresi untuk UI."""
     dist = {}
     for (h, a), prob in P_STAR.items():
         diff = h - a
@@ -131,7 +127,6 @@ def _compute_goal_diff_distribution(P_STAR: Dict[Tuple[int, int], float]) -> Dic
 
 
 def _compute_goal_diff_exact(P_STAR: Dict[Tuple[int, int], float]) -> Dict[str, float]:
-    """Distribusi goal difference lengkap (untuk Handicap)."""
     exact = {}
     for (h, a), prob in P_STAR.items():
         diff = h - a
