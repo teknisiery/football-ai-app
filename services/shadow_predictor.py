@@ -1,4 +1,4 @@
-# services/shadow_predictor.py (updated)
+# services/shadow_predictor.py
 """
 Pipeline prediksi paralel (shadow mode) berbasis Probability Fusion.
 Fase 1 – Arsitektur Baru:
@@ -35,19 +35,82 @@ def _build_model_distribution(score_probs: List[Tuple[int, int, float]]) -> Dict
 
 
 def _build_league_distribution(league_profile: Dict[str, float]) -> Dict[Tuple[int, int], float]:
-    avg_goals = float(league_profile.get('league_avg_goals', 2.5))
-    home_win_pct = float(league_profile.get('home_win_pct', 0.40))
-    away_win_pct = float(league_profile.get('away_win_pct', 0.30))
-    draw_pct = float(league_profile.get('draw_pct', 0.30))
+    """Buat distribusi dari profil liga.
 
-    home_exp = avg_goals * (home_win_pct + 0.5 * draw_pct)
-    away_exp = avg_goals * (away_win_pct + 0.5 * draw_pct)
-
+    Jika score_combination_distribution tersedia, gunakan kombinasi
+    yang diarahkan dengan home/away avg goals. Jika tidak, fallback ke Poisson.
+    """
+    home_avg = float(league_profile.get('home_avg_goals', 1.20) or 1.20)
+    away_avg = float(league_profile.get('away_avg_goals', 0.90) or 0.90)
     max_goals = 7
+
+    raw_comb = league_profile.get('score_combination_distribution', '{}')
+    if raw_comb:
+        try:
+            comb_dist = json.loads(raw_comb) if isinstance(raw_comb, str) else raw_comb
+        except Exception:
+            comb_dist = None
+    else:
+        comb_dist = None
+
+    if not comb_dist:
+        # Fallback: Poisson independen
+        dist = {}
+        for h in range(max_goals + 1):
+            for a in range(max_goals + 1):
+                dist[(h, a)] = poisson.pmf(h, home_avg) * poisson.pmf(a, away_avg)
+        return normalize_score_distribution(dist)
+
+    other_prob = comb_dist.get("Other", 0.0)
+    home_ratio = home_avg / (home_avg + away_avg) if (home_avg + away_avg) > 0 else 0.5
+
+    # Inisialisasi
     dist = {}
     for h in range(max_goals + 1):
         for a in range(max_goals + 1):
-            dist[(h, a)] = poisson.pmf(h, home_exp) * poisson.pmf(a, away_exp)
+            dist[(h, a)] = 0.0
+
+    # Isi dari kombinasi
+    for key, prob in comb_dist.items():
+        if key == "Other":
+            continue
+        parts = key.split(':')
+        if len(parts) != 2:
+            continue
+        try:
+            g1 = int(parts[0])
+            g2 = int(parts[1])
+        except ValueError:
+            continue
+
+        if g1 == g2:
+            if 0 <= g1 <= max_goals:
+                dist[(g1, g1)] += prob
+        else:
+            # g1 lebih besar dari g2
+            h_score = (g1, g2)
+            a_score = (g2, g1)
+            if h_score[0] <= max_goals and h_score[1] <= max_goals:
+                dist[h_score] += prob * home_ratio
+            if a_score[0] <= max_goals and a_score[1] <= max_goals:
+                dist[a_score] += prob * (1 - home_ratio)
+
+    # Alokasikan other_prob ke sel kosong
+    if other_prob > 0:
+        poisson_ref = {}
+        for h in range(max_goals + 1):
+            for a in range(max_goals + 1):
+                poisson_ref[(h, a)] = poisson.pmf(h, home_avg) * poisson.pmf(a, away_avg)
+        empty_cells = [(h, a) for (h, a), v in dist.items() if v == 0.0]
+        total_mass = sum(poisson_ref.get(cell, 0.0) for cell in empty_cells)
+        if total_mass > 0:
+            for cell in empty_cells:
+                dist[cell] += other_prob * (poisson_ref.get(cell, 0.0) / total_mass)
+        else:
+            if empty_cells:
+                per_cell = other_prob / len(empty_cells)
+                for cell in empty_cells:
+                    dist[cell] += per_cell
 
     return normalize_score_distribution(dist)
 
@@ -133,7 +196,6 @@ def compute_shadow_prediction(
 
     # 5. Turunkan probabilitas
     ou_line = float(df.get('current_ou', 2.5))
-    # APPROXIMATION UNTUK DISPLAY — EV production memerlukan settlement states penuh
     shadow_prob_over = prob_over(P_STAR, ou_line)
     shadow_prob_under = prob_under(P_STAR, ou_line)
 
@@ -156,10 +218,9 @@ def compute_shadow_prediction(
         'shadow_prob_over': shadow_prob_over,
         'shadow_prob_under': shadow_prob_under,
         'shadow_prob_btts': shadow_prob_btts,
-        'shadow_goal_diff_distribution': goal_diff_dist,  # kompatibel dengan UI
-        'shadow_goal_diff_exact': goal_diff_exact,        # untuk Handicap
+        'shadow_goal_diff_distribution': goal_diff_dist,
+        'shadow_goal_diff_exact': goal_diff_exact,
         'shadow_top3_scores': top3,
-        # Metadata tambahan
         'shadow_prob_1x2_home': shadow_prob_home,
         'shadow_prob_1x2_draw': shadow_prob_draw,
         'shadow_prob_1x2_away': shadow_prob_away,
