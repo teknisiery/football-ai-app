@@ -6,6 +6,7 @@ import json
 import re
 
 from services.resource_registry import ResourceRegistry
+from services.league_profile import update_league_profile
 
 
 def parse_score_distribution_text(raw_text: str, total_matches: int = 0) -> dict:
@@ -208,6 +209,41 @@ def render_league_editor(db_storage, session):
                 st.error(f"Jumlah seluruh skor melebihi Total Matches. Selisih: {remaining}")
             else:
                 st.info(f"Sisa {remaining} otomatis masuk kategori 'Other' (termasuk skor 5+).")
+
+        # --- Tambah Hasil Terlewat ---
+        with st.expander("➕ Tambah Hasil Terlewat"):
+            st.caption("Tambahkan hasil pertandingan yang terlewat. Hanya update statistik liga, tidak masuk history prediksi.")
+
+            col_ht_h, col_ht_a = st.columns(2)
+            with col_ht_h:
+                missed_ht_home = st.number_input("HT Home", min_value=0, step=1, key="missed_ht_home")
+            with col_ht_a:
+                missed_ht_away = st.number_input("HT Away", min_value=0, step=1, key="missed_ht_away")
+
+            col_ft_h, col_ft_a = st.columns(2)
+            with col_ft_h:
+                missed_ft_home = st.number_input("FT Home", min_value=0, step=1, key="missed_ft_home")
+            with col_ft_a:
+                missed_ft_away = st.number_input("FT Away", min_value=0, step=1, key="missed_ft_away")
+
+            if st.button("➕ Tambahkan ke Statistik"):
+                ht_total = missed_ht_home + missed_ht_away
+                ft_total = missed_ft_home + missed_ft_away
+
+                if ht_total > ft_total:
+                    st.warning("Skor HT tidak boleh lebih besar dari FT.")
+                else:
+                    match_data = {
+                        'home_goals': int(missed_ft_home),
+                        'away_goals': int(missed_ft_away),
+                        'totalgol_ft': int(ft_total),
+                        'home_ht_goals': int(missed_ht_home),
+                        'away_ht_goals': int(missed_ht_away),
+                        'totalgol_ht': int(ht_total),
+                    }
+                    update_league_profile(db_storage, selected_code, match_data, session)
+                    st.success("Statistik liga berhasil diperbarui.")
+                    st.rerun()
 
         # --- Simpan ---
         if st.button("💾 Simpan Statistik"):
