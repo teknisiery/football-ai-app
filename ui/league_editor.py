@@ -63,7 +63,7 @@ def render_league_editor(db_storage, session):
     with st.expander("✏️ Edit Statistik Liga"):
         try:
             profil_league = db_storage.load_dataframe(ResourceRegistry.LEAGUE_PROFILE)
-        except:
+        except Exception:
             profil_league = pd.DataFrame()
 
         # Pastikan kolom default
@@ -148,21 +148,32 @@ def render_league_editor(db_storage, session):
         with st.expander("⚽ Distribusi Skor Kombinasi"):
             st.caption("Isi jumlah kejadian untuk setiap kategori. Sisa otomatis menjadi 'Other' (termasuk skor 5+).")
 
-            # Inisialisasi session state untuk hasil parse
+            # Inisialisasi session state untuk hasil parse jika belum ada
             if 'parsed_score_counts' not in st.session_state:
                 st.session_state['parsed_score_counts'] = {}
 
-            # Blok parse diletakkan SEBELUM input number agar nilai hasil parse terbaca
+            # Blok parse diletakkan SEBELUM input number agar state terisi duluan
             st.markdown("**📥 Paste Distribusi Skor (hanya untuk mengisi input di atas)**")
             raw_paste = st.text_area(
                 "Tempel teks distribusi skor",
                 height=150,
                 key="paste_score_dist"
             )
+
+            categories = [
+                "0:0", "1:0", "1:1", "2:0", "2:1", "2:2",
+                "3:0", "3:1", "3:2", "3:3",
+                "4:0", "4:1", "4:2", "4:3", "4:4"
+            ]
+
             if st.button("📥 Parse Teks", key="parse_score_dist_btn"):
                 parsed = parse_score_distribution_text(raw_paste, int(new_total_matches))
                 if parsed:
                     st.session_state['parsed_score_counts'] = parsed
+                    # Tulis langsung ke state input number agar widget ter-update
+                    for cat in categories:
+                        state_key = f"edit_comb_{cat.replace(':', '_')}"
+                        st.session_state[state_key] = int(parsed.get(cat, 0))
                     st.success("Teks berhasil diparse. Silakan periksa input di atas.")
                 else:
                     st.warning("Tidak dapat memparse teks. Pastikan format mengandung skor dan jumlah.")
@@ -171,29 +182,24 @@ def render_league_editor(db_storage, session):
             raw_dist = liga_row.get('score_combination_distribution', '{}')
             try:
                 current_dist = json.loads(raw_dist) if raw_dist else {}
-            except:
+            except Exception:
                 current_dist = {}
 
             current_total = int(liga_row.get('total_matches', 0) or 0)
             score_counts = {}
-            categories = [
-                "0:0", "1:0", "1:1", "2:0", "2:1", "2:2",
-                "3:0", "3:1", "3:2", "3:3",
-                "4:0", "4:1", "4:2", "4:3", "4:4"
-            ]
 
-            parsed_counts = st.session_state.get('parsed_score_counts', {})
+            # Pastikan setiap widget memiliki state awal dari distribusi tersimpan
             for cat in categories:
-                default_count = parsed_counts.get(
-                    cat,
-                    int(round(current_dist.get(cat, 0.0) * current_total)) if current_total else 0
-                )
+                state_key = f"edit_comb_{cat.replace(':', '_')}"
+                default_count = int(round(current_dist.get(cat, 0.0) * current_total)) if current_total else 0
+                if state_key not in st.session_state:
+                    st.session_state[state_key] = default_count
+
                 score_counts[cat] = st.number_input(
                     f"Skor {cat}",
                     min_value=0,
-                    value=int(default_count),
                     step=1,
-                    key=f"edit_comb_{cat.replace(':', '_')}"
+                    key=state_key
                 )
 
             sum_input = sum(score_counts.values())
