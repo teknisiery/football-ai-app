@@ -141,16 +141,23 @@ class GitHubStorageProvider(StorageProvider):
         headers = self._headers()
         base_url = self._repo_base_url
 
+        def _ensure_ok(resp, action):
+            if resp.status_code not in (200, 201, 204):
+                raise RuntimeError(
+                    f"Git Data API error {resp.status_code} saat {action} "
+                    f"untuk {r.default_filename}: {resp.text}"
+                )
+
         # 1. Ambil SHA commit terakhir dari branch
         ref_url = f"{base_url}/git/ref/heads/{self.branch}"
         resp = requests.get(ref_url, headers=headers)
-        resp.raise_for_status()
+        _ensure_ok(resp, "GET ref")
         base_commit_sha = resp.json()["object"]["sha"]
 
         # 2. Ambil tree SHA dari commit terakhir
         commit_url = f"{base_url}/git/commits/{base_commit_sha}"
         resp = requests.get(commit_url, headers=headers)
-        resp.raise_for_status()
+        _ensure_ok(resp, "GET commit")
         base_tree_sha = resp.json()["tree"]["sha"]
 
         # 3. Buat blob baru
@@ -159,10 +166,10 @@ class GitHubStorageProvider(StorageProvider):
             "encoding": "base64",
         }
         resp = requests.post(f"{base_url}/git/blobs", headers=headers, json=blob_payload)
-        resp.raise_for_status()
+        _ensure_ok(resp, "POST blob")
         blob_sha = resp.json()["sha"]
 
-        # 4. Buat tree baru (menimpa/menambah file target)
+        # 4. Buat tree baru
         tree_payload = {
             "base_tree": base_tree_sha,
             "tree": [
@@ -175,7 +182,7 @@ class GitHubStorageProvider(StorageProvider):
             ],
         }
         resp = requests.post(f"{base_url}/git/trees", headers=headers, json=tree_payload)
-        resp.raise_for_status()
+        _ensure_ok(resp, "POST tree")
         new_tree_sha = resp.json()["sha"]
 
         # 5. Buat commit baru
@@ -185,13 +192,13 @@ class GitHubStorageProvider(StorageProvider):
             "parents": [base_commit_sha],
         }
         resp = requests.post(f"{base_url}/git/commits", headers=headers, json=commit_payload)
-        resp.raise_for_status()
+        _ensure_ok(resp, "POST commit")
         new_commit_sha = resp.json()["sha"]
 
         # 6. Update referensi branch
         ref_update_payload = {"sha": new_commit_sha, "force": False}
         resp = requests.patch(ref_url, headers=headers, json=ref_update_payload)
-        resp.raise_for_status()
+        _ensure_ok(resp, "PATCH ref")
 
     def load_dataframe(self, r):
         """Load CSV data from GitHub, including files larger than 1 MB."""
@@ -228,7 +235,12 @@ class GitHubStorageProvider(StorageProvider):
     def save_dataframe(self, r, df):
         data = df.to_csv(index=False).encode()
         if len(data) > self.LARGE_FILE_THRESHOLD:
-            self._save_large_file(r, data)
+            try:
+                self._save_large_file(r, data)
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Gagal menyimpan file besar {r.default_filename}: {exc}"
+                )
         else:
             self._crud("put", r, data)
 
@@ -245,7 +257,12 @@ class GitHubStorageProvider(StorageProvider):
     def save_json(self, r, d):
         data = json.dumps(d, indent=2).encode()
         if len(data) > self.LARGE_FILE_THRESHOLD:
-            self._save_large_file(r, data)
+            try:
+                self._save_large_file(r, data)
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Gagal menyimpan file besar {r.default_filename}: {exc}"
+                )
         else:
             self._crud("put", r, data)
 
@@ -262,7 +279,12 @@ class GitHubStorageProvider(StorageProvider):
         joblib.dump(o, buf)
         data = buf.getvalue()
         if len(data) > self.LARGE_FILE_THRESHOLD:
-            self._save_large_file(r, data)
+            try:
+                self._save_large_file(r, data)
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Gagal menyimpan file besar {r.default_filename}: {exc}"
+                )
         else:
             self._crud("put", r, data)
 
