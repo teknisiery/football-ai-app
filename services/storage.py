@@ -1,3 +1,4 @@
+# services/storage.py
 """
 Penyimpanan dan manajemen database untuk Football AI V2.
 Mendukung penyimpanan lokal (filesystem) dan remote (GitHub API).
@@ -49,7 +50,8 @@ class LocalStorageProvider(StorageProvider):
     def __init__(self, base_dir=BASE_DIR):
         self.base_dir = base_dir
 
-    def _path(self, r): return self.base_dir / r.default_filename
+    def _path(self, r):
+        return self.base_dir / r.default_filename
 
     def load_dataframe(self, r):
         p = self._path(r)
@@ -59,7 +61,8 @@ class LocalStorageProvider(StorageProvider):
             raise FileNotFoundError(f"Resource {r.id} not found at {p}")
         return pd.read_csv(p)
 
-    def save_dataframe(self, r, df): df.to_csv(self._path(r), index=False)
+    def save_dataframe(self, r, df):
+        df.to_csv(self._path(r), index=False)
 
     def load_json(self, r):
         p = self._path(r)
@@ -67,27 +70,46 @@ class LocalStorageProvider(StorageProvider):
             if r.id in OPTIONAL_RESOURCES:
                 return {}
             raise FileNotFoundError(f"Resource {r.id} not found at {p}")
-        with open(p) as f: return json.load(f)
+        with open(p) as f:
+            return json.load(f)
 
     def save_json(self, r, d):
-        with open(self._path(r), 'w') as f: json.dump(d, f, indent=2)
+        with open(self._path(r), 'w') as f:
+            json.dump(d, f, indent=2)
 
-    def load_pickle(self, r): return joblib.load(self._path(r))
+    def load_pickle(self, r):
+        return joblib.load(self._path(r))
 
-    def save_pickle(self, r, o): joblib.dump(o, self._path(r))
+    def save_pickle(self, r, o):
+        joblib.dump(o, self._path(r))
 
-    def exists(self, r): return self._path(r).exists()
+    def exists(self, r):
+        return self._path(r).exists()
 
-    def delete(self, r): self._path(r).unlink(missing_ok=True)
+    def delete(self, r):
+        self._path(r).unlink(missing_ok=True)
 
 
 class GitHubStorageProvider(StorageProvider):
+    LARGE_FILE_THRESHOLD = 1_000_000  # 1 MB
+
     def __init__(self, owner, repo, branch, token):
+        self.owner = owner
+        self.repo = repo
         self.api = f"https://api.github.com/repos/{owner}/{repo}/contents"
         self.branch = branch
         self.token = token
 
-    def _headers(self): return {"Authorization": f"token {self.token}", "Accept": "application/vnd.github.v3+json"}
+    def _headers(self):
+        return {
+            "Authorization": f"token {self.token}",
+            "Accept": "application/vnd.github.v3+json",
+        }
+
+    @property
+    def _repo_base_url(self):
+        # https://api.github.com/repos/{owner}/{repo}
+        return self.api.rsplit("/contents", 1)[0]
 
     def _get_sha(self, r):
         url = f"{self.api}/{r.default_filename}?ref={self.branch}"
@@ -98,8 +120,10 @@ class GitHubStorageProvider(StorageProvider):
         url = f"{self.api}/{r.default_filename}"
         sha = self._get_sha(r)
         payload = {"message": f"Update {r.id}", "branch": self.branch}
-        if sha: payload["sha"] = sha
-        if method == "put" and data: payload["content"] = base64.b64encode(data).decode()
+        if sha:
+            payload["sha"] = sha
+        if method == "put" and data:
+            payload["content"] = base64.b64encode(data).decode()
         resp = requests.request(method, url, headers=self._headers(), json=payload)
         if resp.status_code == 409:
             sha = self._get_sha(r)
@@ -112,15 +136,65 @@ class GitHubStorageProvider(StorageProvider):
         else:
             resp.raise_for_status()
 
-    def load_dataframe(self, r):
-        """Load CSV data from GitHub, including files larger than 1 MB.
+    def _save_large_file(self, r, data):
+        """Simpan file besar menggunakan Git Data API (blob, tree, commit, ref)."""
+        headers = self._headers()
+        base_url = self._repo_base_url
 
-        GitHub's Contents API does not reliably return inline base64 content
-        for files above its inline-content limit. When that happens, use the
-        Git Blob API with the file SHA instead of treating the resource as an
-        empty DataFrame. This is critical for history_ou.csv, which can grow
-        beyond 1 MB as the permanent history accumulates.
-        """
+        # 1. Ambil SHA commit terakhir dari branch
+        ref_url = f"{base_url}/git/ref/heads/{self.branch}"
+        resp = requests.get(ref_url, headers=headers)
+        resp.raise_for_status()
+        base_commit_sha = resp.json()["object"]["sha"]
+
+        # 2. Ambil tree SHA dari commit terakhir
+        commit_url = f"{base_url}/git/commits/{base_commit_sha}"
+        resp = requests.get(commit_url, headers=headers)
+        resp.raise_for_status()
+        base_tree_sha = resp.json()["tree"]["sha"]
+
+        # 3. Buat blob baru
+        blob_payload = {
+            "content": base64.b64encode(data).decode(),
+            "encoding": "base64",
+        }
+        resp = requests.post(f"{base_url}/git/blobs", headers=headers, json=blob_payload)
+        resp.raise_for_status()
+        blob_sha = resp.json()["sha"]
+
+        # 4. Buat tree baru (menimpa/menambah file target)
+        tree_payload = {
+            "base_tree": base_tree_sha,
+            "tree": [
+                {
+                    "path": r.default_filename,
+                    "mode": "100644",
+                    "type": "blob",
+                    "sha": blob_sha,
+                }
+            ],
+        }
+        resp = requests.post(f"{base_url}/git/trees", headers=headers, json=tree_payload)
+        resp.raise_for_status()
+        new_tree_sha = resp.json()["sha"]
+
+        # 5. Buat commit baru
+        commit_payload = {
+            "message": f"Update {r.id} via Git Data API",
+            "tree": new_tree_sha,
+            "parents": [base_commit_sha],
+        }
+        resp = requests.post(f"{base_url}/git/commits", headers=headers, json=commit_payload)
+        resp.raise_for_status()
+        new_commit_sha = resp.json()["sha"]
+
+        # 6. Update referensi branch
+        ref_update_payload = {"sha": new_commit_sha, "force": False}
+        resp = requests.patch(ref_url, headers=headers, json=ref_update_payload)
+        resp.raise_for_status()
+
+    def load_dataframe(self, r):
+        """Load CSV data from GitHub, including files larger than 1 MB."""
         url = f"{self.api}/{r.default_filename}?ref={self.branch}"
         resp = requests.get(url, headers=self._headers())
         if resp.status_code == 404:
@@ -135,27 +209,28 @@ class GitHubStorageProvider(StorageProvider):
             content = base64.b64decode(content_b64)
             return pd.read_csv(BytesIO(content)) if content.strip() else pd.DataFrame()
 
-        # Large-file fallback: Contents API may omit inline content.
+        # Large-file fallback
         sha = metadata.get("sha")
         if not sha:
-            raise RuntimeError(
-                f"GitHub tidak mengembalikan isi atau SHA untuk resource {r.id}."
-            )
+            raise RuntimeError(f"GitHub tidak mengembalikan isi atau SHA untuk resource {r.id}.")
 
-        blob_url = f"https://api.github.com/repos/{self.api.split('/repos/', 1)[1].split('/contents', 1)[0]}/git/blobs/{sha}"
+        base_url = self._repo_base_url
+        blob_url = f"{base_url}/git/blobs/{sha}"
         blob_resp = requests.get(blob_url, headers=self._headers())
         blob_resp.raise_for_status()
-        blob_data = blob_resp.json()
-        blob_content = blob_data.get("content") or ""
+        blob_content = blob_resp.json().get("content") or ""
         if not blob_content:
-            raise RuntimeError(
-                f"GitHub Blob API tidak mengembalikan isi untuk resource {r.id}."
-            )
+            raise RuntimeError(f"GitHub Blob API tidak mengembalikan isi untuk resource {r.id}.")
 
         content = base64.b64decode(blob_content)
         return pd.read_csv(BytesIO(content)) if content.strip() else pd.DataFrame()
 
-    def save_dataframe(self, r, df): self._crud("put", r, df.to_csv(index=False).encode())
+    def save_dataframe(self, r, df):
+        data = df.to_csv(index=False).encode()
+        if len(data) > self.LARGE_FILE_THRESHOLD:
+            self._save_large_file(r, data)
+        else:
+            self._crud("put", r, data)
 
     def load_json(self, r):
         url = f"{self.api}/{r.default_filename}?ref={self.branch}"
@@ -167,19 +242,29 @@ class GitHubStorageProvider(StorageProvider):
         resp.raise_for_status()
         return json.loads(base64.b64decode(resp.json()["content"]))
 
-    def save_json(self, r, d): self._crud("put", r, json.dumps(d, indent=2).encode())
+    def save_json(self, r, d):
+        data = json.dumps(d, indent=2).encode()
+        if len(data) > self.LARGE_FILE_THRESHOLD:
+            self._save_large_file(r, data)
+        else:
+            self._crud("put", r, data)
 
     def load_pickle(self, r):
         url = f"{self.api}/{r.default_filename}?ref={self.branch}"
         resp = requests.get(url, headers=self._headers())
-        if resp.status_code == 404: raise FileNotFoundError
+        if resp.status_code == 404:
+            raise FileNotFoundError
         resp.raise_for_status()
         return joblib.load(BytesIO(base64.b64decode(resp.json()["content"])))
 
     def save_pickle(self, r, o):
         buf = BytesIO()
         joblib.dump(o, buf)
-        self._crud("put", r, buf.getvalue())
+        data = buf.getvalue()
+        if len(data) > self.LARGE_FILE_THRESHOLD:
+            self._save_large_file(r, data)
+        else:
+            self._crud("put", r, data)
 
     def exists(self, r):
         url = f"{self.api}/{r.default_filename}?ref={self.branch}"
@@ -187,7 +272,12 @@ class GitHubStorageProvider(StorageProvider):
 
     def delete(self, r):
         sha = self._get_sha(r)
-        if sha: requests.delete(f"{self.api}/{r.default_filename}", headers=self._headers(), json={"message":"delete","sha":sha,"branch":self.branch})
+        if sha:
+            requests.delete(
+                f"{self.api}/{r.default_filename}",
+                headers=self._headers(),
+                json={"message": "delete", "sha": sha, "branch": self.branch},
+            )
 
 
 class DatabaseManager:
@@ -207,18 +297,47 @@ class DatabaseManager:
             return DataFrameReadResult("EMPTY", pd.DataFrame() if data is None else data, None)
         return DataFrameReadResult("OK", data, None)
 
-    def load_history(self): return self.storage.load_dataframe(ResourceRegistry.HISTORY)
-    def save_history(self, df): self.storage.save_dataframe(ResourceRegistry.HISTORY, df)
-    def load_dataset(self): return self.storage.load_dataframe(ResourceRegistry.DATASET)
-    def save_dataset(self, df): self.storage.save_dataframe(ResourceRegistry.DATASET, df)
-    def load_dataset_with_goal(self): return self.storage.load_dataframe(ResourceRegistry.DATASET_WITH_GOAL)
-    def save_dataset_with_goal(self, df): self.storage.save_dataframe(ResourceRegistry.DATASET_WITH_GOAL, df)
-    def load_pending(self): return self.storage.load_dataframe(ResourceRegistry.PENDING)
-    def save_pending(self, df): self.storage.save_dataframe(ResourceRegistry.PENDING, df)
-    def load_model(self): return self.storage.load_pickle(ResourceRegistry.MODEL)
-    def save_model(self, b): self.storage.save_pickle(ResourceRegistry.MODEL, b)
-    def load_threshold(self): return self.storage.load_json(ResourceRegistry.THRESHOLD) if self.storage.exists(ResourceRegistry.THRESHOLD) else {}
-    def save_threshold(self, d): self.storage.save_json(ResourceRegistry.THRESHOLD, d)
-    def load_league_profile(self): return self.storage.load_dataframe(ResourceRegistry.LEAGUE_PROFILE) if self.storage.exists(ResourceRegistry.LEAGUE_PROFILE) else pd.DataFrame()
-    def save_league_profile(self, df): self.storage.save_dataframe(ResourceRegistry.LEAGUE_PROFILE, df)
-    def is_model_ready(self): return self.storage.exists(ResourceRegistry.MODEL)
+    def load_history(self):
+        return self.storage.load_dataframe(ResourceRegistry.HISTORY)
+
+    def save_history(self, df):
+        self.storage.save_dataframe(ResourceRegistry.HISTORY, df)
+
+    def load_dataset(self):
+        return self.storage.load_dataframe(ResourceRegistry.DATASET)
+
+    def save_dataset(self, df):
+        self.storage.save_dataframe(ResourceRegistry.DATASET, df)
+
+    def load_dataset_with_goal(self):
+        return self.storage.load_dataframe(ResourceRegistry.DATASET_WITH_GOAL)
+
+    def save_dataset_with_goal(self, df):
+        self.storage.save_dataframe(ResourceRegistry.DATASET_WITH_GOAL, df)
+
+    def load_pending(self):
+        return self.storage.load_dataframe(ResourceRegistry.PENDING)
+
+    def save_pending(self, df):
+        self.storage.save_dataframe(ResourceRegistry.PENDING, df)
+
+    def load_model(self):
+        return self.storage.load_pickle(ResourceRegistry.MODEL)
+
+    def save_model(self, b):
+        self.storage.save_pickle(ResourceRegistry.MODEL, b)
+
+    def load_threshold(self):
+        return self.storage.load_json(ResourceRegistry.THRESHOLD) if self.storage.exists(ResourceRegistry.THRESHOLD) else {}
+
+    def save_threshold(self, d):
+        self.storage.save_json(ResourceRegistry.THRESHOLD, d)
+
+    def load_league_profile(self):
+        return self.storage.load_dataframe(ResourceRegistry.LEAGUE_PROFILE) if self.storage.exists(ResourceRegistry.LEAGUE_PROFILE) else pd.DataFrame()
+
+    def save_league_profile(self, df):
+        self.storage.save_dataframe(ResourceRegistry.LEAGUE_PROFILE, df)
+
+    def is_model_ready(self):
+        return self.storage.exists(ResourceRegistry.MODEL)
