@@ -149,7 +149,7 @@ class GitHubStorageProvider(StorageProvider):
                 )
 
         # 1. Ambil SHA commit terakhir dari branch
-        ref_url = f"{base_url}/git/ref/heads/{self.branch}"
+        ref_url = f"{base_url}/git/refs/heads/{self.branch}"
         resp = requests.get(ref_url, headers=headers)
         _ensure_ok(resp, "GET ref")
         base_commit_sha = resp.json()["object"]["sha"]
