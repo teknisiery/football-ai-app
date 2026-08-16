@@ -27,7 +27,7 @@ class PendingService:
                 (berhasil, pesan, data history lengkap jika berhasil, None jika gagal)
         """
         db = DatabaseManager(storage)
-        
+
         # Siapkan record lengkap
         full_record = dict(row_dict)
         full_record['kickoff_time'] = normalize_kickoff(full_record.get('kickoff_time'))
@@ -38,7 +38,7 @@ class PendingService:
         full_record['totalgol_ft'] = ft_home_goals + ft_away_goals
         full_record['totalgol_ht'] = ht_home_goals + ht_away_goals
         full_record['settlement_time'] = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")
-        
+
         # Pastikan status VALIDATED terbawa ke history meskipun row_dict tidak mengirimkannya
         full_record['prediction_status'] = 'VALIDATED'
 
@@ -49,7 +49,14 @@ class PendingService:
         existing_hist = db.load_history()
         if not existing_hist.empty and 'match_uid' in existing_hist.columns:
             if full_record['match_uid'] in existing_hist['match_uid'].values:
-                return False, "Pertandingan sudah ada di History.", None
+                # Jika sudah ada di history, hapus dari pending jika masih ada
+                pend = db.load_pending()
+                if not pend.empty and 'match_uid' in pend.columns:
+                    mask_pend = pend['match_uid'] == full_record['match_uid']
+                    if mask_pend.any():
+                        pend = pend[~mask_pend]
+                        db.save_pending(pend)
+                return True, "Pertandingan sudah ada di History. Pending telah dibersihkan.", full_record
 
         # Simpan ke history
         hist_record_df = pd.DataFrame([full_record])
@@ -62,7 +69,7 @@ class PendingService:
         dataset_record_df = hist_record_df.copy()
         if 'league_name' in dataset_record_df.columns:
             dataset_record_df = dataset_record_df.drop(columns=['league_name'])
-        
+
         dataset_wg = db.load_dataset_with_goal()
         if not dataset_wg.empty and 'match_uid' in dataset_wg.columns:
             if full_record['match_uid'] not in dataset_wg['match_uid'].values:
