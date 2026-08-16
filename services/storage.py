@@ -9,6 +9,7 @@ import os
 import base64
 import requests
 import joblib
+import time
 from io import BytesIO
 from abc import ABC, abstractmethod
 from typing import Any
@@ -137,6 +138,18 @@ class GitHubStorageProvider(StorageProvider):
             resp.raise_for_status()
 
     def _save_large_file(self, r, data):
+        """Panggil _do_save_large_file dengan retry sederhana."""
+        max_retries = 3
+        for attempt in range(1, max_retries + 1):
+            try:
+                self._do_save_large_file(r, data)
+                return
+            except Exception as exc:
+                if attempt == max_retries:
+                    raise
+                time.sleep(2 * attempt)
+
+    def _do_save_large_file(self, r, data):
         """Simpan file besar menggunakan Git Data API (blob, tree, commit, ref)."""
         headers = self._headers()
         base_url = self._repo_base_url
