@@ -7,6 +7,7 @@ Fase 1 – Arsitektur Baru:
   - Top 3 Correct Score dari P_STAR
   - Metadata versi & bobot fusion
   - Round trend adjustment eksperimental
+  - PPG metadata opsional
 """
 from typing import Dict, List, Tuple, Optional, Any
 import pandas as pd
@@ -149,9 +150,6 @@ def _apply_round_trend_adjustment(dist: Dict[Tuple[int, int], float], round_tren
 
     for (h, a), prob in dist.items():
         total = h + a
-        # round_trend = prev - last
-        # Jika tren menurun (round_trend > 0), kita ingin kurangi skor tinggi:
-        # exp(-alpha * round_trend * total) < 1 untuk skor tinggi.
         factor = np.exp(-alpha * round_trend * total)
         adjusted[(h, a)] = prob * factor
 
@@ -253,6 +251,12 @@ def compute_shadow_prediction(
         'shadow_prob_1x2_away': shadow_prob_away,
         'shadow_prob_btts_yes': shadow_prob_btts,
         'shadow_prob_btts_no': 1.0 - shadow_prob_btts,
+        'ppg_data': {
+            'home_ppg_all': df.get('home_ppg_all'),
+            'away_ppg_all': df.get('away_ppg_all'),
+            'home_ppg_last5': df.get('home_ppg_last5'),
+            'away_ppg_last5': df.get('away_ppg_last5'),
+        },
         'fusion_weights': weights,
         'fusion_version': '1.0.0',
         'round_trend': round_trend,
