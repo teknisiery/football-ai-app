@@ -10,11 +10,7 @@ from services.league_profile import update_league_profile
 
 
 def parse_score_distribution_text(raw_text: str, total_matches: int = 0) -> dict:
-    """Parse teks distribusi skor dari sumber eksternal.
-
-    Mengabaikan persentase, hanya mengambil angka terakhir di baris sebagai jumlah.
-    Skor dengan gol individu ≥5 otomatis masuk kategori "Other".
-    """
+    """Parse teks distribusi skor dari sumber eksternal."""
     categories = [
         "0:0", "1:0", "1:1", "2:0", "2:1", "2:2",
         "3:0", "3:1", "3:2", "3:3",
@@ -67,7 +63,6 @@ def render_league_editor(db_storage, session):
         except Exception:
             profil_league = pd.DataFrame()
 
-        # Pastikan kolom default
         for col, default in [('home_win_pct', 0.40), ('away_win_pct', 0.30), ('draw_pct', 0.30)]:
             if col not in profil_league.columns:
                 profil_league[col] = default
@@ -136,6 +131,23 @@ def render_league_editor(db_storage, session):
             key="edit_away_avg_goals"
         )
 
+        # --- Prev/Last Round Avg Goals ---
+        new_prev_round_avg_goals = st.number_input(
+            "Prev Round Avg Goals",
+            min_value=0.0,
+            value=float(liga_row.get('prev_round_avg_goals', 2.5) or 2.5),
+            step=0.01,
+            key="edit_prev_round_avg_goals"
+        )
+
+        new_last_round_avg_goals = st.number_input(
+            "Last Round Avg Goals",
+            min_value=0.0,
+            value=float(liga_row.get('last_round_avg_goals', 2.5) or 2.5),
+            step=0.01,
+            key="edit_last_round_avg_goals"
+        )
+
         # --- Total Matches ---
         new_total_matches = st.number_input(
             "Total Matches",
@@ -149,11 +161,9 @@ def render_league_editor(db_storage, session):
         with st.expander("⚽ Distribusi Skor Kombinasi"):
             st.caption("Isi jumlah kejadian untuk setiap kategori. Sisa otomatis menjadi 'Other' (termasuk skor 5+).")
 
-            # Inisialisasi session state untuk hasil parse jika belum ada
             if 'parsed_score_counts' not in st.session_state:
                 st.session_state['parsed_score_counts'] = {}
 
-            # Blok parse diletakkan SEBELUM input number agar state terisi duluan
             st.markdown("**📥 Paste Distribusi Skor (hanya untuk mengisi input di atas)**")
             raw_paste = st.text_area(
                 "Tempel teks distribusi skor",
@@ -171,7 +181,6 @@ def render_league_editor(db_storage, session):
                 parsed = parse_score_distribution_text(raw_paste, int(new_total_matches))
                 if parsed:
                     st.session_state['parsed_score_counts'] = parsed
-                    # Tulis langsung ke state input number agar widget ter-update
                     for cat in categories:
                         state_key = f"edit_comb_{cat.replace(':', '_')}"
                         st.session_state[state_key] = int(parsed.get(cat, 0))
@@ -189,7 +198,6 @@ def render_league_editor(db_storage, session):
             current_total = int(liga_row.get('total_matches', 0) or 0)
             score_counts = {}
 
-            # Pastikan setiap widget memiliki state awal dari distribusi tersimpan
             for cat in categories:
                 state_key = f"edit_comb_{cat.replace(':', '_')}"
                 default_count = int(round(current_dist.get(cat, 0.0) * current_total)) if current_total else 0
@@ -257,6 +265,8 @@ def render_league_editor(db_storage, session):
 
             profil_league.loc[mask, 'home_avg_goals'] = new_home_avg_goals
             profil_league.loc[mask, 'away_avg_goals'] = new_away_avg_goals
+            profil_league.loc[mask, 'prev_round_avg_goals'] = new_prev_round_avg_goals
+            profil_league.loc[mask, 'last_round_avg_goals'] = new_last_round_avg_goals
 
             profil_league.loc[mask, 'total_matches'] = new_total_matches
 
