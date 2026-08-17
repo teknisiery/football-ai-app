@@ -29,6 +29,8 @@ def get_league_profile(
             ('draw_pct', 0.30),
             ('home_avg_goals', 1.20),
             ('away_avg_goals', 0.90),
+            ('prev_round_avg_goals', 2.5),
+            ('last_round_avg_goals', 2.5),
             ('score_combination_distribution', '{}'),
         ]:
             if col not in state.league_profile_cache.columns:
@@ -52,6 +54,7 @@ def attach_league_profile(
         'league_under35_pct': 0.7, 'league_name': 'Unknown League',
         'home_win_pct': 0.40, 'away_win_pct': 0.30, 'draw_pct': 0.30,
         'home_avg_goals': 1.20, 'away_avg_goals': 0.90,
+        'prev_round_avg_goals': 2.5, 'last_round_avg_goals': 2.5,
         'score_combination_distribution': '{}',
     }
     for col, val in defaults.items():
@@ -70,6 +73,7 @@ def update_league_profile(
 ) -> None:
     """
     Perbarui profil liga secara inkremental berdasarkan satu pertandingan yang baru selesai.
+    Tidak menghitung ulang prev_round_avg_goals & last_round_avg_goals; dibiarkan manual.
     """
     if not storage.exists(ResourceRegistry.LEAGUE_PROFILE):
         return
@@ -217,6 +221,8 @@ def add_new_league(
         'draw_pct': 0.30,
         'home_avg_goals': 1.20,
         'away_avg_goals': 0.90,
+        'prev_round_avg_goals': 2.5,
+        'last_round_avg_goals': 2.5,
         'score_combination_distribution': '{}',
     }
     profil = pd.concat([profil, pd.DataFrame([new_row])], ignore_index=True)
