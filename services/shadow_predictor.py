@@ -53,7 +53,6 @@ def _build_league_distribution(league_profile: Dict[str, float]) -> Dict[Tuple[i
         comb_dist = None
 
     if not comb_dist:
-        # Fallback: Poisson independen
         dist = {}
         for h in range(max_goals + 1):
             for a in range(max_goals + 1):
@@ -63,10 +62,8 @@ def _build_league_distribution(league_profile: Dict[str, float]) -> Dict[Tuple[i
     other_prob = comb_dist.get("Other", 0.0)
     home_ratio = home_avg / (home_avg + away_avg) if (home_avg + away_avg) > 0 else 0.5
 
-    # Inisialisasi
     dist = {(h, a): 0.0 for h in range(max_goals + 1) for a in range(max_goals + 1)}
 
-    # Isi dari kombinasi
     for key, prob in comb_dist.items():
         if key == "Other":
             continue
@@ -83,15 +80,13 @@ def _build_league_distribution(league_profile: Dict[str, float]) -> Dict[Tuple[i
             if 0 <= g1 <= max_goals:
                 dist[(g1, g1)] += prob
         else:
-            # g1 lebih besar dari g2 (max,min)
             h_score = (g1, g2)
             a_score = (g2, g1)
             if h_score[0] <= max_goals and h_score[1] <= max_goals:
                 dist[h_score] += prob * home_ratio
             if a_score[0] <= max_goals and a_score[1] <= max_goals:
-                dist[a_score] += prob * (1.0 - home_ratio)
+                dist[a_score] += prob * (1 - home_ratio)
 
-    # Alokasikan other_prob ke sel kosong
     if other_prob > 0:
         poisson_ref = {
             (h, a): poisson.pmf(h, home_avg) * poisson.pmf(a, away_avg)
@@ -206,6 +201,16 @@ def compute_shadow_prediction(
     goal_diff_exact = _compute_goal_diff_exact(P_STAR)
     top3 = _top3_correct_scores(P_STAR)
 
+    # --- Round trend dari profil liga (eksperimen) ---
+    prev_round_avg = league_profile_dict.get('prev_round_avg_goals')
+    last_round_avg = league_profile_dict.get('last_round_avg_goals')
+    round_trend = None
+    if prev_round_avg is not None and last_round_avg is not None:
+        try:
+            round_trend = float(prev_round_avg) - float(last_round_avg)
+        except (TypeError, ValueError):
+            round_trend = None
+
     return {
         'shadow_prob_home': shadow_prob_home,
         'shadow_prob_draw': shadow_prob_draw,
@@ -223,4 +228,6 @@ def compute_shadow_prediction(
         'shadow_prob_btts_no': 1.0 - shadow_prob_btts,
         'fusion_weights': weights,
         'fusion_version': '1.0.0',
+        'round_trend': round_trend,
+        'round_trend_adjustment_version': '1.0.0',
     }
