@@ -137,6 +137,25 @@ class GitHubStorageProvider(StorageProvider):
         else:
             resp.raise_for_status()
 
+    def _get_raw_content(self, r) -> bytes:
+        """Ambil konten raw file dari repository private menggunakan Contents API.
+
+        Menggunakan Accept: application/vnd.github.raw+json agar GitHub
+        mengembalikan isi file mentah, bukan metadata base64.
+        """
+        url = f"{self.api}/{r.default_filename}?ref={self.branch}"
+        headers = {
+            **self._headers(),
+            "Accept": "application/vnd.github.raw+json",
+        }
+        resp = requests.get(url, headers=headers)
+        if resp.status_code != 200:
+            raise RuntimeError(
+                f"Gagal mengambil raw file {r.default_filename}: "
+                f"HTTP {resp.status_code} - {resp.text[:300]}"
+            )
+        return resp.content
+
     def _save_large_file(self, r, data):
         """Panggil _do_save_large_file dengan retry sederhana."""
         max_retries = 3
@@ -214,7 +233,7 @@ class GitHubStorageProvider(StorageProvider):
         _ensure_ok(resp, "PATCH ref")
 
     def load_dataframe(self, r):
-        """Load CSV data from GitHub, including files larger than 1 MB."""
+        """Load CSV data from GitHub, with raw fallback for large files."""
         url = f"{self.api}/{r.default_filename}?ref={self.branch}"
         resp = requests.get(url, headers=self._headers())
         if resp.status_code == 404:
@@ -229,21 +248,11 @@ class GitHubStorageProvider(StorageProvider):
             content = base64.b64decode(content_b64)
             return pd.read_csv(BytesIO(content)) if content.strip() else pd.DataFrame()
 
-        # Large-file fallback
-        sha = metadata.get("sha")
-        if not sha:
-            raise RuntimeError(f"GitHub tidak mengembalikan isi atau SHA untuk resource {r.id}.")
-
-        base_url = self._repo_base_url
-        blob_url = f"{base_url}/git/blobs/{sha}"
-        blob_resp = requests.get(blob_url, headers=self._headers())
-        blob_resp.raise_for_status()
-        blob_content = blob_resp.json().get("content") or ""
-        if not blob_content:
-            raise RuntimeError(f"GitHub Blob API tidak mengembalikan isi untuk resource {r.id}.")
-
-        content = base64.b64decode(blob_content)
-        return pd.read_csv(BytesIO(content)) if content.strip() else pd.DataFrame()
+        # Raw fallback untuk file besar
+        content = self._get_raw_content(r)
+        if not content.strip():
+            return pd.DataFrame()
+        return pd.read_csv(BytesIO(content))
 
     def save_dataframe(self, r, df):
         data = df.to_csv(index=False).encode()
@@ -265,7 +274,15 @@ class GitHubStorageProvider(StorageProvider):
                 return {}
             raise FileNotFoundError(f"Resource {r.id} not found in GitHub")
         resp.raise_for_status()
-        return json.loads(base64.b64decode(resp.json()["content"]))
+
+        metadata = resp.json()
+        content_b64 = metadata.get("content") or ""
+        if content_b64.strip():
+            return json.loads(base64.b64decode(content_b64))
+
+        # Raw fallback untuk file besar
+        content = self._get_raw_content(r)
+        return json.loads(content)
 
     def save_json(self, r, d):
         data = json.dumps(d, indent=2).encode()
@@ -285,7 +302,15 @@ class GitHubStorageProvider(StorageProvider):
         if resp.status_code == 404:
             raise FileNotFoundError
         resp.raise_for_status()
-        return joblib.load(BytesIO(base64.b64decode(resp.json()["content"])))
+
+        metadata = resp.json()
+        content_b64 = metadata.get("content") or ""
+        if content_b64.strip():
+            return joblib.load(BytesIO(base64.b64decode(content_b64)))
+
+        # Raw fallback untuk file besar
+        content = self._get_raw_content(r)
+        return joblib.load(BytesIO(content))
 
     def save_pickle(self, r, o):
         buf = BytesIO()
