@@ -6,6 +6,7 @@ Fase 1 – Arsitektur Baru:
   - Distribusi Goal Difference terkompresi & exact
   - Top 3 Correct Score dari P_STAR
   - Metadata versi & bobot fusion
+  - Round trend adjustment eksperimental
 """
 from typing import Dict, List, Tuple, Optional, Any
 import pandas as pd
@@ -134,6 +135,29 @@ def _top3_correct_scores(P_STAR: Dict[Tuple[int, int], float]) -> List[Tuple[int
     return [(int(h), int(a), float(p)) for (h, a), p in sorted_scores[:3]]
 
 
+def _apply_round_trend_adjustment(dist: Dict[Tuple[int, int], float], round_trend: float, max_goals: int = 7) -> Dict[Tuple[int, int], float]:
+    """Sesuaikan distribusi skor berdasarkan tren round.
+
+    Tren positif (prev > last) → liga sedang menurun, kurangi bobot skor tinggi.
+    Tren negatif → liga sedang meningkat, tambah bobot skor tinggi.
+    """
+    if round_trend is None:
+        return dist
+
+    adjusted = {}
+    alpha = 0.15  # experimental weight
+
+    for (h, a), prob in dist.items():
+        total = h + a
+        # round_trend = prev - last
+        # Jika tren menurun (round_trend > 0), kita ingin kurangi skor tinggi:
+        # exp(-alpha * round_trend * total) < 1 untuk skor tinggi.
+        factor = np.exp(-alpha * round_trend * total)
+        adjusted[(h, a)] = prob * factor
+
+    return normalize_score_distribution(adjusted)
+
+
 def compute_shadow_prediction(
     r: Dict[str, Any],
     df: pd.Series,
@@ -184,7 +208,20 @@ def compute_shadow_prediction(
 
     P_STAR = fuse_score_distributions(distributions, weights)
 
-    # 5. Turunkan probabilitas
+    # 5. Round trend adjustment (eksperimental)
+    prev_round_avg = league_profile_dict.get('prev_round_avg_goals')
+    last_round_avg = league_profile_dict.get('last_round_avg_goals')
+    round_trend = None
+    if prev_round_avg is not None and last_round_avg is not None:
+        try:
+            round_trend = float(prev_round_avg) - float(last_round_avg)
+        except (TypeError, ValueError):
+            round_trend = None
+
+    if round_trend is not None:
+        P_STAR = _apply_round_trend_adjustment(P_STAR, round_trend)
+
+    # 6. Turunkan probabilitas dari P_STAR yang sudah disesuaikan
     ou_line = float(df.get('current_ou', 2.5))
     shadow_prob_over = prob_over(P_STAR, ou_line)
     shadow_prob_under = prob_under(P_STAR, ou_line)
@@ -200,16 +237,6 @@ def compute_shadow_prediction(
     goal_diff_dist = _compute_goal_diff_distribution(P_STAR)
     goal_diff_exact = _compute_goal_diff_exact(P_STAR)
     top3 = _top3_correct_scores(P_STAR)
-
-    # --- Round trend dari profil liga (eksperimen) ---
-    prev_round_avg = league_profile_dict.get('prev_round_avg_goals')
-    last_round_avg = league_profile_dict.get('last_round_avg_goals')
-    round_trend = None
-    if prev_round_avg is not None and last_round_avg is not None:
-        try:
-            round_trend = float(prev_round_avg) - float(last_round_avg)
-        except (TypeError, ValueError):
-            round_trend = None
 
     return {
         'shadow_prob_home': shadow_prob_home,
