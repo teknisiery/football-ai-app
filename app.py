@@ -107,6 +107,11 @@ class PendingContract:
         # Movements
         "btts_movement_yes", "btts_movement_no",
         "ah_movement_line", "ah_movement_home", "ah_movement_away",
+        # PPG features
+        "home_ppg_all",
+        "away_ppg_all",
+        "home_ppg_last5",
+        "away_ppg_last5",
         # Shadow prediction (parallel mode)
         "shadow_prob_over",
         "shadow_prob_under",
@@ -861,10 +866,10 @@ def render_shadow_prediction(summary: dict):
     if not shadow or 'error' in shadow:
         st.info("Data prediksi baru belum tersedia. Unggah odds 1X2 & Correct Score untuk mengaktifkan.")
         return
-    
+
     st.subheader("🆕 Prediksi Baru (Probability Fusion)")
     st.caption("Sistem eksperimental — tidak memengaruhi rekomendasi utama.")
-    
+
     col1, col2, col3 = st.columns(3)
     with col1:
         st.metric("Over", f"{shadow.get('shadow_prob_over', 0):.1%}")
@@ -872,7 +877,7 @@ def render_shadow_prediction(summary: dict):
         st.metric("Under", f"{shadow.get('shadow_prob_under', 0):.1%}")
     with col3:
         st.metric("BTTS Yes", f"{shadow.get('shadow_prob_btts', 0):.1%}")
-    
+
     st.markdown("**1X2**")
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -881,7 +886,7 @@ def render_shadow_prediction(summary: dict):
         st.metric("Draw", f"{shadow.get('shadow_prob_draw', 0):.1%}")
     with col3:
         st.metric("Away", f"{shadow.get('shadow_prob_away', 0):.1%}")
-    
+
     goal_diff = shadow.get('shadow_goal_diff_distribution', {})
     if goal_diff:
         st.markdown("**Distribusi Selisih Gol**")
@@ -1954,6 +1959,15 @@ def main():
                     prediction_payload = ps.prediction_result or {}
                     serialized = serialize_prediction(prediction_payload)
                     row.update(serialized)
+                    # PPG dari file unggahan (opsional)
+                    if 'home_ppg_all' in session.uploaded_df.columns:
+                        row['home_ppg_all'] = session.uploaded_df.iloc[0].get('home_ppg_all')
+                    if 'away_ppg_all' in session.uploaded_df.columns:
+                        row['away_ppg_all'] = session.uploaded_df.iloc[0].get('away_ppg_all')
+                    if 'home_ppg_last5' in session.uploaded_df.columns:
+                        row['home_ppg_last5'] = session.uploaded_df.iloc[0].get('home_ppg_last5')
+                    if 'away_ppg_last5' in session.uploaded_df.columns:
+                        row['away_ppg_last5'] = session.uploaded_df.iloc[0].get('away_ppg_last5')
                     kickoff_raw = session.uploaded_df['kickoff_time'].iloc[0] if 'kickoff_time' in session.uploaded_df.columns else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     kickoff_clean = normalize_kickoff(kickoff_raw)
                     row['kickoff_time'] = kickoff_clean
